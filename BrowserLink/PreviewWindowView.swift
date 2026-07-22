@@ -19,11 +19,16 @@ struct PreviewWindowView: View {
             Divider().opacity(0.15)
             ZStack {
                 WebView(url: url, viewModel: viewModel)
+
                 if viewModel.isLoading {
                     ProgressView()
                         .controlSize(.small)
                         .padding(.top, 6)
                         .frame(maxHeight: .infinity, alignment: .top)
+                }
+
+                if let error = viewModel.loadError {
+                    errorOverlay(error)
                 }
             }
         }
@@ -41,6 +46,56 @@ struct PreviewWindowView: View {
                 }
             )
         }
+    }
+
+    private func errorOverlay(_ error: PreviewLoadError) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: error.systemImage)
+                .font(.system(size: 44, weight: .medium))
+                .foregroundStyle(.orange)
+
+            VStack(spacing: 6) {
+                Text(error.title)
+                    .font(.system(size: 18, weight: .semibold))
+                Text(error.message)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 380)
+            }
+
+            HStack(spacing: 10) {
+                Button(action: {
+                    viewModel.retryOriginalLoad(url)
+                }) {
+                    Label("Try Again", systemImage: "arrow.clockwise")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Menu {
+                    ForEach(BrowserDetector.installedBrowsers()) { browser in
+                        Button(browser.name) {
+                            onOpenInRealBrowser(browser)
+                        }
+                    }
+                } label: {
+                    Label("Open in Browser Instead", systemImage: "arrow.up.forward.app")
+                        .font(.system(size: 12.5, weight: .medium))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+        }
+        .padding(32)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.regularMaterial)
+        )
+        .padding(40)
     }
 
     private var toolbar: some View {
@@ -132,11 +187,105 @@ final class PreviewViewModel: ObservableObject {
     /// before anything is written to disk.
     @Published var pendingDownload: PendingDownload?
 
+    /// Set whenever loading fails — either a transport-level failure (no
+    /// internet, DNS failure, timeout) or an HTTP error status code (404,
+    /// 503, etc). Previously these failed silently with a blank window;
+    /// now they populate this and the view shows a real error screen.
+    @Published var loadError: PreviewLoadError?
+
     weak var webView: WKWebView?
 
     func goBack() { webView?.goBack() }
     func goForward() { webView?.goForward() }
-    func reload() { webView?.reload() }
+    func reload() {
+        loadError = nil
+        webView?.reload()
+    }
+
+    /// Retries the ORIGINAL url, not just webView.reload() — important
+    /// because reload() on a page that never successfully loaded (e.g. a
+    /// DNS failure) can sometimes no-op rather than actually retry.
+    func retryOriginalLoad(_ url: URL) {
+        loadError = nil
+        webView?.load(URLRequest(url: url))
+    }
+}
+
+/// Describes why a page failed to load, in language a non-technical person
+/// can act on — not a raw NSError dump.
+struct PreviewLoadError: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+    let systemImage: String
+
+    static func transport(_ error: Error) -> PreviewLoadError {
+        let nsError = error as NSError
+
+        // Common, human-meaningful transport failures.
+        switch nsError.code {
+        case NSURLErrorNotConnectedToInternet:
+            return PreviewLoadError(
+                title: "No Internet Connection",
+                message: "Your Mac doesn't appear to be connected to the internet right now.",
+                systemImage: "wifi.slash"
+            )
+        case NSURLErrorTimedOut:
+            return PreviewLoadError(
+                title: "Connection Timed Out",
+                message: "The site took too long to respond. It may be down, or your connection may be slow right now.",
+                systemImage: "clock.badge.exclamationmark"
+            )
+        case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed:
+            return PreviewLoadError(
+                title: "Site Can't Be Found",
+                message: "This domain doesn't seem to exist, or there was a problem resolving it.",
+                systemImage: "questionmark.circle"
+            )
+        case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted:
+            return PreviewLoadError(
+                title: "Secure Connection Failed",
+                message: "This site's security certificate couldn't be verified. Proceed with caution if you choose to open it in a real browser instead.",
+                systemImage: "lock.trianglebadge.exclamationmark"
+            )
+        default:
+            return PreviewLoadError(
+                title: "Couldn't Load Page",
+                message: nsError.localizedDescription,
+                systemImage: "exclamationmark.triangle"
+            )
+        }
+    }
+
+    static func httpStatus(_ code: Int, url: URL?) -> PreviewLoadError {
+        let host = url?.host ?? "This site"
+        switch code {
+        case 404:
+            return PreviewLoadError(
+                title: "Page Not Found (404)",
+                message: "\(host) says this page doesn't exist. It may have been moved or removed.",
+                systemImage: "questionmark.folder"
+            )
+        case 403:
+            return PreviewLoadError(
+                title: "Access Denied (403)",
+                message: "\(host) is refusing to show this page — you may need to log in or lack permission.",
+                systemImage: "lock.fill"
+            )
+        case 500, 502, 503, 504:
+            return PreviewLoadError(
+                title: "Server Error (\(code))",
+                message: "\(host) is having server problems right now. This usually isn't something on your end — try again in a bit.",
+                systemImage: "server.rack"
+            )
+        default:
+            return PreviewLoadError(
+                title: "Error \(code)",
+                message: "\(host) returned an error loading this page.",
+                systemImage: "exclamationmark.triangle"
+            )
+        }
+    }
 }
 
 /// Represents a download the user hasn't yet confirmed or rejected.
@@ -185,6 +334,7 @@ struct WebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             viewModel.isLoading = true
+            viewModel.loadError = nil
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -196,22 +346,52 @@ struct WebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             viewModel.isLoading = false
+            if (error as NSError).code != NSURLErrorCancelled {
+                viewModel.loadError = .transport(error)
+            }
         }
 
-        // MARK: - Download Interception
-        //
-        // Any navigation that WebKit determines should be a download (based
-        // on Content-Disposition headers or MIME type) routes through here
-        // FIRST — before any bytes are written to disk. We pause it with a
-        // confirmation prompt via the view model, which the SwiftUI layer
-        // renders as an alert. Nothing downloads until the user explicitly
-        // confirms.
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            // This is the one that was silently swallowing failures before —
+            // didFailProvisionalNavigation fires for failures that happen
+            // BEFORE any content starts loading (no internet, DNS failure,
+            // connection refused), which is the most common real-world case.
+            // The old code had no handler for this at all.
+            //
+            // NSURLErrorCancelled is filtered out because WebKit legitimately
+            // cancels its own provisional navigation when a response turns
+            // into a download (see decidePolicyFor below) — that's expected
+            // behavior, not a real failure, and shouldn't show an error screen.
+            viewModel.isLoading = false
+            if (error as NSError).code != NSURLErrorCancelled {
+                viewModel.loadError = .transport(error)
+            }
+        }
 
         func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationResponse: WKNavigationResponse,
             decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
         ) {
+            // Check for HTTP-level error status codes. These are NOT
+            // transport failures from WebKit's point of view — the server
+            // DID respond, just with an error — so didFail never fires for
+            // these. Previously this meant a 404 or 503 just rendered
+            // whatever (often blank) HTML the server sent, with zero
+            // explanation to the user.
+            if let httpResponse = navigationResponse.response as? HTTPURLResponse,
+               httpResponse.statusCode >= 400 {
+                DispatchQueue.main.async {
+                    self.viewModel.isLoading = false
+                    self.viewModel.loadError = .httpStatus(
+                        httpResponse.statusCode,
+                        url: httpResponse.url
+                    )
+                }
+                decisionHandler(.cancel)
+                return
+            }
+
             if navigationResponse.canShowMIMEType {
                 decisionHandler(.allow)
             } else {

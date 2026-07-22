@@ -1,11 +1,3 @@
-//
-//  URLSafetyResult.swift
-//  BrowserLink
-//
-//  Created by James on 11/07/2026.
-//
-
-
 import Foundation
 
 /// Result of a heuristic safety check on a URL.

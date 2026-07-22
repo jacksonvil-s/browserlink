@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Sparkle
 
 /// The real brain of the app. Because this is a background agent (LSUIElement = true,
 /// set in Info.plist), there's no Dock icon and no default window — everything is
@@ -17,9 +18,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// previews can be open at once without stomping on each other.
     private var previewWindows: [UUID: NSWindow] = [:]
 
+    /// Sparkle's standard updater controller — handles checking the appcast
+    /// feed (see Info.plist SUFeedURL), downloading, verifying the EdDSA
+    /// signature, and installing updates. `startingUpdater: true` means it
+    /// begins its periodic background check automatically at launch.
+    private lazy var updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
+
+    /// The Preferences window. Built once, shown/hidden as needed rather
+    /// than recreated each time (avoids losing toggle state / flicker).
+    private var preferencesWindow: NSWindow?
+
+    /// Global keyboard shortcut monitor (⌥⇧B) that reopens Preferences even
+    /// when the menu bar icon is hidden — otherwise a hidden icon would leave
+    /// no way back into settings at all.
+    private var globalShortcutMonitor: Any?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        setupStatusItem()
-        rebuildMenu()
+        if !PreferencesHelper.isMenuBarIconHidden {
+            setupStatusItem()
+            rebuildMenu()
+        }
+        setupGlobalShortcut()
+    }
+
+    /// Guards against the global shortcut firing many times in rapid
+    /// succession (e.g. someone holding the keys down, which repeats the
+    /// keyDown event continuously) — without this, each repeat could queue
+    /// up another window-creation call, and enough of them piling up on the
+    /// main thread is what caused Xcode/the app to hang entirely.
+    private var lastShortcutTriggerTime: Date = .distantPast
+
+    /// Registers the ⌥⇧B global shortcut that reopens Preferences regardless
+    /// of whether the menu bar icon is currently shown. This is the escape
+    /// hatch that makes "Hide Menu Bar Icon" safe to offer at all — without
+    /// it, hiding the icon would strand the user with no way back in short
+    /// of quitting via Activity Monitor.
+    private func setupGlobalShortcut() {
+        globalShortcutMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self else { return }
+            // ⌥⇧B: keyCode 11 is 'B' on US layouts; checking modifiers this way
+            // is simple and reliable enough for a single fixed shortcut like this.
+            guard event.modifierFlags.contains([.option, .shift]) && event.keyCode == 11 else {
+                return
+            }
+
+            // Debounce: ignore repeats within half a second of the last trigger.
+            let now = Date()
+            guard now.timeIntervalSince(self.lastShortcutTriggerTime) > 0.5 else {
+                return
+            }
+            self.lastShortcutTriggerTime = now
+
+            // CRITICAL: global monitor callbacks are not guaranteed to run on
+            // the main thread. All AppKit window/view work below MUST happen
+            // on main, or rapid triggers can corrupt AppKit state and hang
+            // the app (this is what caused the freeze).
+            DispatchQueue.main.async {
+                self.openPreferences()
+            }
+        }
     }
 
     // MARK: - Menu Bar
@@ -65,6 +126,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(loginItem)
 
         menu.addItem(NSMenuItem.separator())
+
+        let updateItem = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+            keyEquivalent: ""
+        )
+        updateItem.target = updaterController
+        menu.addItem(updateItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        menu.addItem(
+            NSMenuItem(
+                title: "Preferences…",
+                action: #selector(openPreferences),
+                keyEquivalent: ","
+            )
+        )
+
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(
             NSMenuItem(
                 title: "Quit BrowserLink",
@@ -77,11 +158,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // NSApplication's own terminate(_:), so it must keep targeting nil
         // (which lets AppKit route it to the app itself / first responder
         // chain) rather than being forced onto AppDelegate, where that
-        // selector doesn't exist and would silently no-op.
+        // selector doesn't exist and would silently no-op. The "Check for
+        // Updates…" item already has its target set explicitly to
+        // updaterController, so it's skipped here too.
         for menuItem in menu.items {
             if menuItem.action == #selector(NSApplication.terminate(_:)) {
                 menuItem.target = nil
-            } else {
+            } else if menuItem.target == nil {
                 menuItem.target = self
             }
         }
@@ -97,6 +180,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func promptSetDefaultBrowser() {
         DefaultBrowserHelper.promptUserToSetDefault()
+    }
+
+    /// True while a Preferences window creation is in progress — guards
+    /// against re-entrant calls piling up (e.g. from rapid shortcut presses)
+    /// stacking multiple window/hosting-controller creations on top of each
+    /// other, which is what caused the app to hang.
+    private var isCreatingPreferencesWindow = false
+
+    @objc private func openPreferences() {
+        // If the window already exists, just bring it forward — cheap, safe
+        // to call as often as needed.
+        if let existing = preferencesWindow {
+            NSApp.activate(ignoringOtherApps: true)
+            existing.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        // Prevent re-entrant creation if somehow called again before the
+        // first creation finishes.
+        guard !isCreatingPreferencesWindow else { return }
+        isCreatingPreferencesWindow = true
+        defer { isCreatingPreferencesWindow = false }
+
+        let view = PreferencesView(
+            updater: updaterController.updater,
+            onSetDefaultBrowser: { [weak self] in
+                self?.promptSetDefaultBrowser()
+            },
+            onHideMenuBarIconChanged: { [weak self] hidden in
+                self?.setStatusItemVisible(!hidden)
+            }
+        )
+        let hosting = NSHostingController(rootView: view)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 420),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hosting
+        window.title = "BrowserLink Preferences"
+        window.isReleasedWhenClosed = false
+        window.center()
+        preferencesWindow = window
+
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    /// Shows or hides the menu bar status item. When hiding, the item is
+    /// fully removed from the status bar (not just its icon cleared) so it
+    /// doesn't leave an invisible-but-clickable gap behind. When showing
+    /// again, it's recreated fresh and the menu rebuilt.
+    private func setStatusItemVisible(_ visible: Bool) {
+        if visible {
+            if statusItem == nil {
+                setupStatusItem()
+                rebuildMenu()
+            }
+        } else {
+            if let item = statusItem {
+                NSStatusBar.system.removeStatusItem(item)
+            }
+            statusItem = nil
+        }
     }
 
     // MARK: - URL Interception
