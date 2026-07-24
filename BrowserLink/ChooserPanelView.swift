@@ -140,8 +140,8 @@ struct ChooserPanelView: View {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.orange)
-                Text("This link looks suspicious")
+                    .foregroundStyle(.yellow)
+                Text("This link looks suspicious. The reasons are listed below.")
                     .font(.system(size: 14.5, weight: .semibold))
                     .foregroundStyle(.primary)
                 Spacer()
@@ -167,7 +167,7 @@ struct ChooserPanelView: View {
                     hasConfirmedDanger = true
                 }
             }) {
-                Text("I understand the risk — show me the options anyway")
+                Text("I understand the risk — show me the options anyway (this may cause harm to your system!)")
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity)

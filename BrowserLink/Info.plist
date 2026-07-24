@@ -2,51 +2,39 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleDocumentTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeName</key>
-			<string>URL</string>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>public.url</string>
-				<string>public.https-url</string>
-			</array>
-		</dict>
-	</array>
-	<key>CFBundleGetInfoString</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>CFBundleURLName</key>
-			<string>Web Browser</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>http</string>
-				<string>https</string>
-			</array>
-		</dict>
-	</array>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>CFBundleURLName</key>
-			<string>Web Browser</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>http</string>
-				<string>https</string>
-			</array>
-		</dict>
-	</array>
-	<key>SUFeedURL</key>
-	<string>https://raw.githubusercontent.com/jacksonvil-s/browserlink/main/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>Y4J8q8C9pRSiVx8ayRLVRJIrsupCfGaaPByVi6YfJh8=</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>URL</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.url</string>
+                <string>public.https-url</string>
+            </array>
+        </dict>
+    </array>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>CFBundleURLName</key>
+            <string>Web Browser</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>http</string>
+                <string>https</string>
+            </array>
+        </dict>
+    </array>
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/jacksonvil-s/browserlink/main/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>Y4J8q8C9pRSiVx8ayRLVRJIrsupCfGaaPByVi6YfJh8=</string>
 </dict>
 </plist>
