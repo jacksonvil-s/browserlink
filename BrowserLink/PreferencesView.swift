@@ -71,7 +71,7 @@ struct PreferencesView: View {
 
                 Button(action: {
                     updater.checkForUpdates()
-                }) {
+                }) label: {
                     HStack {
                         Image(systemName: "arrow.triangle.2.circlepath")
                         Text("Check for Updates…")
