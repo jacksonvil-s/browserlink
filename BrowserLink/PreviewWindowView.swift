@@ -68,7 +68,7 @@ struct PreviewWindowView: View {
             HStack(spacing: 10) {
                 Button(action: {
                     viewModel.retryOriginalLoad(url)
-                }) {
+                }) label: {
                     Label("Try Again", systemImage: "arrow.clockwise")
                         .font(.system(size: 12.5, weight: .medium))
                         .padding(.horizontal, 14)
@@ -351,7 +351,9 @@ struct WebView: NSViewRepresentable {
             }
         }
 
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        func webView(_ webView: WKWebView,
+                     didFailProvisionalNavigation navigation: WKNavigation!,
+                     withError error: Error) {
             // This is the one that was silently swallowing failures before —
             // didFailProvisionalNavigation fires for failures that happen
             // BEFORE any content starts loading (no internet, DNS failure,
