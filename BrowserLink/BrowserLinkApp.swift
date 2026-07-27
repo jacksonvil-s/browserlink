@@ -3,7 +3,7 @@ import AppKit
 
 @main
 struct BrowserLinkApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @NSApplicationDelegateAdaptor(AppDelegate.self) weak var appDelegate
 
     var body: some Scene {
         // This Settings scene is unused — AppDelegate manages its own Preferences
