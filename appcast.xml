@@ -8,7 +8,7 @@
             <sparkle:version>6</sparkle:version>
             <sparkle:shortVersionString>1.1.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/jacksonvil-s/browserlink/blob/c46e4f4330311924dd35b541a8d4aa3ee6aaaf4b/releases/v1.1.2/BrowserLink-1.1.2.zip" length="1540884" type="application/octet-stream" sparkle:edSignature="H0g8iDKR1dDugr/G8hAc/kilM6VQ28XTHEmLBFfedWJwjCGHoQAOK3bhokStR5L0gIOkqQlJnKHsF6+w/wFLCw=="/>
+            <enclosure url="https://raw.githubusercontent.com/jacksonvil-s/browserlink/main/releases/v1.1.2/BrowserLink-1.1.2.zip" length="1540884" type="application/octet-stream" sparkle:edSignature="H0g8iDKR1dDugr/G8hAc/kilM6VQ28XTHEmLBFfedWJwjCGHoQAOK3bhokStR5L0gIOkqQlJnKHsF6+w/wFLCw=="/>
         </item>
     </channel>
 </rss>
