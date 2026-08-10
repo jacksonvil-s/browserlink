@@ -69,9 +69,9 @@ struct PreferencesView: View {
                         updater.automaticallyChecksForUpdates = newValue
                     }
 
-                Button(action: {
+                Button {
                     updater.checkForUpdates()
-                }) label: {
+                } label: {
                     HStack {
                         Image(systemName: "arrow.triangle.2.circlepath")
                         Text("Check for Updates…")
@@ -80,6 +80,7 @@ struct PreferencesView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.accentColor)
+                
             }
 
             Spacer()

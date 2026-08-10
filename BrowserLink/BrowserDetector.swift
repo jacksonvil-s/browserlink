@@ -23,7 +23,9 @@ enum BrowserDetector {
         ("com.kagi.kagimacOS", "Orion"),
         ("com.operasoftware.Opera", "Opera"),
         ("org.chromium.Chromium", "Chromium"),
-        ("com.vivaldi.Vivaldi", "Vivaldi")
+        ("com.vivaldi.Vivaldi", "Vivaldi"),
+        ("net.waterfox.waterfox", "Waterfox"),
+        ("app.zen-browser.zen", "Zen Browser")
     ]
 
     /// Scans for which of the known browsers are actually installed on this Mac,

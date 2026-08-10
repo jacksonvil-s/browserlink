@@ -66,9 +66,9 @@ struct PreviewWindowView: View {
             }
 
             HStack(spacing: 10) {
-                Button(action: {
+                Button{
                     viewModel.retryOriginalLoad(url)
-                }) label: {
+                } label: {
                     Label("Try Again", systemImage: "arrow.clockwise")
                         .font(.system(size: 12.5, weight: .medium))
                         .padding(.horizontal, 14)
