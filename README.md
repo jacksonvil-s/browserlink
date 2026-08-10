@@ -5,6 +5,7 @@ Current latest version: v1.1.1
 
 | Version | Supported (overall) | Supported by Sparkle |
 | ------- | ------------------ | ------------------- |
-| 1.1.1 (latest)| :white_check_mark: | ✅ |
-| 1.1.0| :white_check_mark: | ✔️ (Partial) |
-| 1.0.0| :x: | :x: |
+| 1.1.2 (latest) | ✅ | ✅ |
+| 1.1.1 | ✅ | ✅ |
+| 1.1.0 | ✅ | ✔️ (Partial) |
+| 1.0.0 | :x: | :x: |
