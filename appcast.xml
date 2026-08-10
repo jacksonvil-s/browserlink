@@ -8,24 +8,7 @@
             <sparkle:version>6</sparkle:version>
             <sparkle:shortVersionString>1.1.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/jacksonvil-s/browserlink/raw/refs/heads/main/releases/v1.1.2/BrowserLink-1.1.2.zip" length="1540884" type="application/octet-stream" sparkle:edSignature="H0g8iDKR1dDugr/G8hAc/kilM6VQ28XTHEmLBFfedWJwjCGHoQAOK3bhokStR5L0gIOkqQlJnKHsF6+w/wFLCw=="/>
-        </item>
-        <title>BrowserLink</title>
-        <item>
-            <title>1.1.1</title>
-            <pubDate>Fri, 24 Jul 2026 10:13:23 +1000</pubDate>
-            <sparkle:version>5</sparkle:version>
-            <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/jacksonvil-s/browserlink/raw/refs/heads/main/releases/v1.1.1/BrowserLink-1.1.1.zip" length="1540786" type="application/octet-stream" sparkle:edSignature="iWgWnsdHta+r5fua2aBe025TQs8/k60mgC41dYcxQeENCdRCdfknkfPxW53aRExVlooz6KLi9v5JB3X8sX/bBw=="/>
-        </item>
-        <item>
-            <title>1.1</title>
-            <pubDate>Wed, 22 Jul 2026 21:31:42 +1000</pubDate>
-            <sparkle:version>3</sparkle:version>
-            <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/jacksonvil-s/browserlink/raw/refs/heads/main/releases/v1.1.0/BrowserLink-1.1.0.zip" length="1540560" type="application/octet-stream" sparkle:edSignature="rzgaK+Mfi5OBeGqX61eynj+zzQehdIPlns2A2Aq8nwGZuARt3wt15lwqj0YLsfhgsF6Wcw5v+BHLSyWo8BewCg=="/>
+            <enclosure url="https://github.com/jacksonvil-s/browserlink/blob/c46e4f4330311924dd35b541a8d4aa3ee6aaaf4b/releases/v1.1.2/BrowserLink-1.1.2.zip" length="1540884" type="application/octet-stream" sparkle:edSignature="H0g8iDKR1dDugr/G8hAc/kilM6VQ28XTHEmLBFfedWJwjCGHoQAOK3bhokStR5L0gIOkqQlJnKHsF6+w/wFLCw=="/>
         </item>
     </channel>
 </rss>
