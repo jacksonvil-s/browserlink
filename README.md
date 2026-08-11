@@ -1,11 +1,13 @@
 # browserlink
 A browser you can set as default to direct you to other browsers
 
-Current latest version: v1.1.1
+> [!important]
+> Because Sparkle in versions 1.1.0-1.1.2 is unusable, you MUST update manually to 1.1.3 or above to make it functional. This is due to a permissions issue which is batched with these old versions.
 
-| Version | Supported (overall) | Supported by Sparkle |
+| Version | Supported (overall) | Sparkle included? |
 | ------- | ------------------ | ------------------- |
-| 1.1.2 (latest) | ✅ | ✅ |
-| 1.1.1 | ✅ | ✅ |
-| 1.1.0 | ✅ | ✔️ (Partial) |
+| 1.1.3 (latest) | ✅ | ✅ |
+| 1.1.2 | ✅ | 🟡 (Partial functionality) |
+| 1.1.1 | ✅ | 🟡 (Partial functionality) |
+| 1.1.0 | ✅ | 🟡 (Partial functionality) |
 | 1.0.0 | :x: | :x: |
