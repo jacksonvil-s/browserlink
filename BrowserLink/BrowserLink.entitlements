@@ -13,6 +13,8 @@
         <string>com.apple.coreservices.launchservicesd</string>
         <string>com.apple.coreservicesd</string>
         <string>com.apple.pasteboard.1</string>
+        <string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>
+        <string>$(PRODUCT_BUNDLE_IDENTIFIER)-spki</string>
     </array>
 </dict>
 </plist>

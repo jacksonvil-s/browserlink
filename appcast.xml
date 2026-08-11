@@ -3,12 +3,12 @@
     <channel>
         <title>BrowserLink</title>
         <item>
-            <title>1.1.2</title>
-            <pubDate>Mon, 10 Aug 2026 11:44:17 +1000</pubDate>
-            <sparkle:version>6</sparkle:version>
-            <sparkle:shortVersionString>1.1.2</sparkle:shortVersionString>
+            <title>1.1.3</title>
+            <pubDate>Tue, 11 Aug 2026 19:21:12 +1000</pubDate>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>1.1.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://raw.githubusercontent.com/jacksonvil-s/browserlink/main/releases/v1.1.2/BrowserLink-1.1.2.zip" length="1540884" type="application/octet-stream" sparkle:edSignature="H0g8iDKR1dDugr/G8hAc/kilM6VQ28XTHEmLBFfedWJwjCGHoQAOK3bhokStR5L0gIOkqQlJnKHsF6+w/wFLCw=="/>
+            <enclosure url="https://raw.githubusercontent.com/jacksonvil-s/browserlink/main/releases/v1.1.3/BrowserLink-1.1.3.zip" length="1607185" type="application/octet-stream" sparkle:edSignature="KcJfVDLiejC4TwNTtowHj9OsdC6BPgxxQLtEueg2JR4cVTeFN7J2GJXNMCcxbfwCZfDNrr2WOaqLwUDu5pK3Bw=="/>
         </item>
     </channel>
 </rss>
