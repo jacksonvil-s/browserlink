@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Sparkle
+import Combine
 
 /// The real brain of the app. Because this is a background agent (LSUIElement = true,
 /// set in Info.plist), there's no Dock icon and no default window — everything is
@@ -37,12 +38,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// no way back into settings at all.
     private var globalShortcutMonitor: Any?
 
+    /// Holds the Combine subscriptions that keep the status bar menu in
+    /// sync with AppSettings — cancelled automatically on dealloc.
+    private var cancellables = Set<AnyCancellable>()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if !PreferencesHelper.isMenuBarIconHidden {
+        if !AppSettings.shared.hideMenuBarIcon {
             setupStatusItem()
             rebuildMenu()
         }
         setupGlobalShortcut()
+        observeSettings()
+    }
+
+    /// Subscribes to the shared settings so that ANY change — whether it
+    /// came from the menu bar menu, the Preferences window, or anywhere
+    /// else — automatically rebuilds the menu / shows-or-hides the status
+    /// item. This is what replaces the old scattered manual
+    /// `rebuildMenu()` calls and fixes the menu/window sync bug: there is
+    /// now exactly one place that reacts to a change, no matter its source.
+    private func observeSettings() {
+        AppSettings.shared.$launchAtLoginEnabled
+            .dropFirst() // ignore the initial value published on subscribe
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.rebuildMenu()
+            }
+            .store(in: &cancellables)
+
+        AppSettings.shared.$hideMenuBarIcon
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] hidden in
+                self?.setStatusItemVisible(!hidden)
+            }
+            .store(in: &cancellables)
     }
 
     /// Guards against the global shortcut firing many times in rapid
@@ -103,8 +133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Builds (or rebuilds) just the NSMenu and assigns it to the existing
-    /// status item. Safe to call repeatedly — e.g. after toggling Launch at
-    /// Login, to refresh the checkmark state — since it never touches the
+    /// status item. Safe to call repeatedly — e.g. whenever AppSettings
+    /// changes, to refresh the checkmark state — since it never touches the
     /// status item itself.
     private func rebuildMenu() {
         let menu = NSMenu()
@@ -122,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             action: #selector(toggleLaunchAtLogin),
             keyEquivalent: ""
         )
-        loginItem.state = LoginItemHelper.isEnabled ? .on : .off
+        loginItem.state = AppSettings.shared.launchAtLoginEnabled ? .on : .off
         menu.addItem(loginItem)
 
         menu.addItem(NSMenuItem.separator())
@@ -172,10 +202,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleLaunchAtLogin() {
-        LoginItemHelper.setEnabled(!LoginItemHelper.isEnabled)
-        // Rebuild just the menu so the checkmark reflects the new state —
-        // does NOT touch the status item itself.
-        rebuildMenu()
+        // Just flip the shared setting — the observeSettings() subscription
+        // picks this up and calls rebuildMenu() automatically, and if the
+        // Preferences window is open its toggle updates too, instantly.
+        AppSettings.shared.launchAtLoginEnabled.toggle()
     }
 
     @objc private func promptSetDefaultBrowser() {
@@ -207,14 +237,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             updater: updaterController.updater,
             onSetDefaultBrowser: { [weak self] in
                 self?.promptSetDefaultBrowser()
-            },
-            onHideMenuBarIconChanged: { [weak self] hidden in
-                self?.setStatusItemVisible(!hidden)
             }
         )
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 540),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -278,6 +305,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onOpenIn: { [weak self] browser in
                 self?.chooserPanel?.close()
                 BrowserDetector.open(url: url, in: browser)
+            },
+            onOpenPreferences: { [weak self] in
+                self?.chooserPanel?.close()
+                self?.openPreferences()
             },
             onDismiss: { [weak self] in
                 self?.chooserPanel?.close()

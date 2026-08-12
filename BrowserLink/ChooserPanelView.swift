@@ -8,6 +8,7 @@ struct ChooserPanelView: View {
     let browsers: [InstalledBrowser]
     let onPreview: () -> Void
     let onOpenIn: (InstalledBrowser) -> Void
+    let onOpenPreferences: () -> Void
     let onDismiss: () -> Void
 
     @State private var hasAppeared = false
@@ -99,14 +100,26 @@ struct ChooserPanelView: View {
                     .truncationMode(.middle)
             }
             Spacer()
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .padding(8)
-                    .background(Circle().fill(.secondary.opacity(0.12)))
+            HStack(spacing: 8) {
+                Button(action: onOpenPreferences) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .padding(8)
+                        .background(Circle().fill(.secondary.opacity(0.12)))
+                }
+                .buttonStyle(.plain)
+                .help("Preferences…")
+
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .padding(8)
+                        .background(Circle().fill(.secondary.opacity(0.12)))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 24)
         .padding(.top, 20)
