@@ -6,9 +6,9 @@ A browser you can set as default to direct you to other browsers
 
 | Version | Technical support | Sparkle included | Security support |
 | ------- | ------------------ | ------------------- | ------------------- |
-| 1.1.4 | ✅ | ✅ | ✅ |
+| 1.1.4 (latest) | ✅ | ✅ | ✅ |
 | 1.1.3 | ✅ | ✅ | ✅ |
-| 1.1.2 | :x: | 🟡 (Partial functionality) | ✅ |
-| 1.1.1 | :x: | 🟡 (Partial functionality) | ✅ |
-| 1.1.0 | :x: | 🟡 (Partial functionality) | ✅ |
+| 1.1.2 | :x: | 🟡 | ✅ |
+| 1.1.1 | :x: | 🟡 | ✅ |
+| 1.1.0 | :x: | 🟡 | ✅ |
 | 1.0.0 | :x: | :x: | ✅ |
