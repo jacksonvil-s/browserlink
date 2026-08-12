@@ -277,31 +277,37 @@ private struct SecurityPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 SettingsCard(title: "Link Warnings") {
-                    SwitchRow(
+                    ComingSoonRow(
                         title: "Warn About Suspicious Links",
-                        subtitle: "Shows a warning banner before opening a link that trips any check below.",
-                        isOn: $settings.warnAboutSuspiciousLinks
+                        subtitle: "Shows a warning banner before opening a link that trips any check below. This feature is currently always active."//,
+                        //isOn: $settings.warnAboutSuspiciousLinks
                     )
                 }
 
                 SettingsCard(title: "Checks") {
-                    SwitchRow(title: "Raw IP Address Links", isOn: $settings.flagRawIPLinks)
+                    ComingSoonRow(title: "Raw IP Address Links",
+                    subtitle: "This feature is currently always active."//,
+                    //isOn: $settings.flagRawIPLinks
+                    )
                         .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
                         .disabled(!settings.warnAboutSuspiciousLinks)
 
                     RowDivider()
 
-                    SwitchRow(
+                    ComingSoonRow(
                         title: "Mixed-Script (Homograph) Domains",
-                        subtitle: "Flags domains mixing alphabets, e.g. Latin + Cyrillic look-alikes.",
-                        isOn: $settings.flagMixedScriptDomains
+                        subtitle: "Flags domains mixing alphabets, e.g. Latin + Cyrillic look-alikes. This feature is currently always active."//,
+                        //isOn: $settings.flagMixedScriptDomains
                     )
                     .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
                     .disabled(!settings.warnAboutSuspiciousLinks)
 
                     RowDivider()
 
-                    SwitchRow(title: "Punycode Domains", isOn: $settings.flagPunycodeDomains)
+                    ComingSoonRow(title: "Punycode Domains",
+                    subtitle: "This feature is currently always active."//,
+                    //isOn: $settings.flagPunycodeDomains
+                    )
                         .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
                         .disabled(!settings.warnAboutSuspiciousLinks)
                 }
@@ -458,7 +464,7 @@ private struct AboutPane: View {
 
             VStack(spacing: 3) {
                 Text("Update checking powered by Sparkle.")
-                Text("© \(currentYear) BrowserLink. All rights reserved.")
+                Text("BrowserLink, \(currentYear). This project is licensed under Apache 2.0.")
             }
             .font(.system(size: 10.5))
             .foregroundStyle(.tertiary)
