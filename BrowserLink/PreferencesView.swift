@@ -192,27 +192,23 @@ private struct GeneralPane: View {
 
                     RowDivider()
 
-                    SwitchRow(
-                        title: "Hide Menu Bar Icon",
-                        subtitle: settings.hideMenuBarIcon
-                            ? "Press ⌥⇧B (Option-Shift-B) anytime to reopen this window."
-                            : nil,
-                        isOn: $settings.hideMenuBarIcon
-                    )
+                    Text("Note: hide icon in menu bar setting is now removed. As a replacement, use the system settings toggle located in menu bar (MacOS 26+)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
 
                 SettingsCard(title: "Chooser") {
-                    ComingSoonRow(
-                        title: "Play Sound When Chooser Appears"//,
-                        //isOn: $settings.playSoundOnChooserAppear
+                    SwitchRow(
+                        title: "Play Sound When Chooser Appears",
+                        isOn: $settings.playSoundOnChooserAppear
                     )
 
                     RowDivider()
 
-                    ComingSoonRow(
+                    SwitchRow(
                         title: "Show Site Icons in Chooser",
-                        subtitle: "Fetched from Google's favicon service. Currently default is on."//,
-                        //isOn: $settings.showFaviconsInChooser
+                        subtitle: "Fetched from Google's favicon service. Disable if you don't want data sent to Google.",
+                        isOn: $settings.showFaviconsInChooser
                     )
                 }
 
@@ -245,7 +241,7 @@ private struct BrowserPane: View {
                     .padding(14)
                 }
 
-                SettingsCard(title: "Behavior") {
+                SettingsCard(title: "Behaviour") {
                     ComingSoonRow(
                         title: "Remember Per-Site Choices",
                         subtitle: "Skip the chooser next time for a site you've already picked a browser for."//,
@@ -259,6 +255,10 @@ private struct BrowserPane: View {
                         subtitle: "After a file finishes saving from Quick Preview."//,
                         //isOn: $settings.revealDownloadsInFinder
                     )
+                    
+                    RowDivider()
+                    
+                    SwitchRow(title: "Enable preview window", subtitle: "Disable to have no preview window, just a pure browser picker.", isOn: $settings.enablePreviewWindow)
                 }
 
                 Spacer()
@@ -277,39 +277,48 @@ private struct SecurityPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 SettingsCard(title: "Link Warnings") {
-                    ComingSoonRow(
+                    SwitchRow(
                         title: "Warn About Suspicious Links",
-                        subtitle: "Shows a warning banner before opening a link that trips any check below. This feature is currently always active."//,
-                        //isOn: $settings.warnAboutSuspiciousLinks
+                        subtitle: "Shows a warning banner before opening a link that trips any check below.",
+                        isOn: $settings.warnAboutSuspiciousLinks
                     )
                 }
 
                 SettingsCard(title: "Checks") {
-                    ComingSoonRow(title: "Raw IP Address Links",
-                    subtitle: "This feature is currently always active."//,
-                    //isOn: $settings.flagRawIPLinks
+                    SwitchRow(title: "Raw IP Address Links",
+                    isOn: $settings.flagRawIPLinks
                     )
                         .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
                         .disabled(!settings.warnAboutSuspiciousLinks)
 
                     RowDivider()
 
-                    ComingSoonRow(
+                    SwitchRow(
                         title: "Mixed-Script (Homograph) Domains",
-                        subtitle: "Flags domains mixing alphabets, e.g. Latin + Cyrillic look-alikes. This feature is currently always active."//,
-                        //isOn: $settings.flagMixedScriptDomains
+                        subtitle: "Flags domains mixing alphabets, e.g. Latin + Cyrillic look-alikes.",
+                        isOn: $settings.flagMixedScriptDomains
                     )
                     .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
                     .disabled(!settings.warnAboutSuspiciousLinks)
 
                     RowDivider()
 
-                    ComingSoonRow(title: "Punycode Domains",
-                    subtitle: "This feature is currently always active."//,
-                    //isOn: $settings.flagPunycodeDomains
+                    SwitchRow(title: "Punycode Domains",
+                    isOn: $settings.flagPunycodeDomains
                     )
                         .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
                         .disabled(!settings.warnAboutSuspiciousLinks)
+                    
+                    RowDivider()
+                    
+                    SwitchRow(
+                        title: "Unusally deep subdomains",
+                        subtitle: "Domains with more than 5 subdomains contained within.",
+                        isOn: $settings.flagDeepSubdomains
+                    )
+                    .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
+                    .disabled(!settings.warnAboutSuspiciousLinks)
+                    
                 }
 
                 Spacer()

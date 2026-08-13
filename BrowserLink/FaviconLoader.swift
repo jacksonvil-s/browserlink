@@ -14,33 +14,36 @@ import Combine
 /// than rolling our own HTML-parsing favicon resolver.
 @MainActor
 final class FaviconLoader: ObservableObject {
-    @Published var image: NSImage?
-
-    private static var cache: [String: NSImage] = [:]
-
+        @Published var image: NSImage?
+        private static var cache: [String: NSImage] = [:]
+        
     func load(for url: URL) {
-        guard let host = url.host else { return }
-
-        if let cached = Self.cache[host] {
-            self.image = cached
-            return
-        }
-
-        guard let faviconURL = URL(
-            string: "https://www.google.com/s2/favicons?sz=128&domain=\(host)"
-        ) else { return }
-
-        Task {
-            do {
-                let (data, _) = try await URLSession.shared.data(from: faviconURL)
-                if let nsImage = NSImage(data: data) {
-                    Self.cache[host] = nsImage
-                    self.image = nsImage
-                }
-            } catch {
-                // Silent failure — the view falls back to the glass globe
-                // placeholder, which is a perfectly good default.
+        if AppSettings.shared.showFaviconsInChooser {
+            guard let host = url.host else { return }
+            
+            if let cached = Self.cache[host] {
+                self.image = cached
+                return
             }
+            
+            guard let faviconURL = URL(
+                string: "https://www.google.com/s2/favicons?sz=128&domain=\(host)"
+            ) else { return }
+            
+            Task {
+                do {
+                    let (data, _) = try await URLSession.shared.data(from: faviconURL)
+                    if let nsImage = NSImage(data: data) {
+                        Self.cache[host] = nsImage
+                        self.image = nsImage
+                    }
+                } catch {
+                    // Silent failure — the view falls back to the glass globe
+                    // placeholder, which is a perfectly good default.
+                }
+            }
+        } else {
+            //Feature disabled
         }
     }
 }

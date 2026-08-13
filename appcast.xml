@@ -3,20 +3,12 @@
     <channel>
         <title>BrowserLink</title>
         <item>
-            <title>1.1.4</title>
-            <pubDate>Wed, 12 Aug 2026 10:41:52 +1000</pubDate>
-            <sparkle:version>9</sparkle:version>
-            <sparkle:shortVersionString>1.1.4</sparkle:shortVersionString>
+            <title>1.1.5</title>
+            <pubDate>Thu, 13 Aug 2026 13:29:44 +1000</pubDate>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>1.1.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://raw.githubusercontent.com/jacksonvil-s/browserlink/main/releases/v1.1.4(9)/BrowserLink-v1.1.4(9).zip" length="1679129" type="application/octet-stream" sparkle:edSignature="CVTUBuF0qMd10alCCiCFJxQPqTxIh1wHtUSLYOeMq8ZOYqtSSIfuUbvXw/+JIZuzvnyH/Trvre4APhp6BJJpCQ=="/>
-        </item>
-        <item>
-            <title>1.1.4</title>
-            <pubDate>Wed, 12 Aug 2026 10:23:40 +1000</pubDate>
-            <sparkle:version>8</sparkle:version>
-            <sparkle:shortVersionString>1.1.4</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://raw.githubusercontent.com/jacksonvil-s/browserlink/main/releases/v1.1.4/BrowserLink-v1.1.4.zip" length="1681799" type="application/octet-stream" sparkle:edSignature="4sZDU7XaDEx1UGHvKyT2hnZL1Kf8362g+l2at6zHmyj2EcZLdnPfAvnS6ceXI9D0E94lCe/2sXvAzvZyVwy/BA=="/>
+            <enclosure url="https://raw.githubusercontent.com/jacksonvil-s/browserlink/main/releases/v1.1.5/BrowserLink-1.1.5.zip" length="1744054" type="application/octet-stream" sparkle:edSignature="ldBVzM/EBDqN056QNhKNqnhRBwJREyzvZ3VxJnxRMisvqSfKcEiR38Pstf3Q3Brq+J1bB4bCR4giIjQiGZECAw=="/>
         </item>
     </channel>
 </rss>

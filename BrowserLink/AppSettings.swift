@@ -29,18 +29,47 @@ final class AppSettings: ObservableObject {
     @Published var hideMenuBarIcon: Bool {
         didSet { persist(newValue: hideMenuBarIcon, oldValue: oldValue, key: Keys.hideMenuBarIcon) }
     }
+    
+    /// FaviconLoader already fetches these — this would let
+    /// someone turn the (Google-routed) lookup off entirely for privacy.
+    @Published var showFaviconsInChooser: Bool {
+        didSet { persist(newValue: showFaviconsInChooser, oldValue: oldValue, key: Keys.showFaviconsInChooser) }
+    }
+    
+    /// master switch for URLSafetyChecker's warning banner.
+    @Published var warnAboutSuspiciousLinks: Bool {
+        didSet { persist(newValue: warnAboutSuspiciousLinks, oldValue: oldValue, key: Keys.warnAboutSuspiciousLinks) }
+    }
+
+    /// URLSafetyChecker's raw-IP-address heuristic, individually toggleable.
+    @Published var flagRawIPLinks: Bool {
+        didSet { persist(newValue: flagRawIPLinks, oldValue: oldValue, key: Keys.flagRawIPLinks) }
+    }
+
+    /// URLSafetyChecker's homograph/mixed-script heuristic, individually toggleable.
+    @Published var flagMixedScriptDomains: Bool {
+        didSet { persist(newValue: flagMixedScriptDomains, oldValue: oldValue, key: Keys.flagMixedScriptDomains) }
+    }
+
+    /// URLSafetyChecker's punycode heuristic, individually toggleable.
+    @Published var flagPunycodeDomains: Bool {
+        didSet { persist(newValue: flagPunycodeDomains, oldValue: oldValue, key: Keys.flagPunycodeDomains) }
+    }
+    
+    /// URLSafetyChecker's deep subdomain heuristic, individually toggleable.
+    @Published var flagDeepSubdomains: Bool {
+        didSet { persist(newValue: flagDeepSubdomains, oldValue: oldValue, key: Keys.flagDeepSubdomains) }
+    }
+    
+    @Published var enablePreviewWindow: Bool {
+        didSet { persist(newValue: enablePreviewWindow, oldValue: oldValue, key: Keys.enablePreviewWindow) }
+    }
 
     // MARK: - Future (persisted now, not yet read by any behavior)
 
     /// Future: play a short sound when the chooser panel appears.
     @Published var playSoundOnChooserAppear: Bool {
         didSet { persist(newValue: playSoundOnChooserAppear, oldValue: oldValue, key: Keys.playSoundOnChooserAppear) }
-    }
-
-    /// Future: FaviconLoader already fetches these — this would let
-    /// someone turn the (Google-routed) lookup off entirely for privacy.
-    @Published var showFaviconsInChooser: Bool {
-        didSet { persist(newValue: showFaviconsInChooser, oldValue: oldValue, key: Keys.showFaviconsInChooser) }
     }
 
     /// Future: remember a chosen browser per-domain and skip the chooser
@@ -53,26 +82,6 @@ final class AppSettings: ObservableObject {
     /// finishes saving it to Downloads.
     @Published var revealDownloadsInFinder: Bool {
         didSet { persist(newValue: revealDownloadsInFinder, oldValue: oldValue, key: Keys.revealDownloadsInFinder) }
-    }
-
-    /// Future: master switch for URLSafetyChecker's warning banner.
-    @Published var warnAboutSuspiciousLinks: Bool {
-        didSet { persist(newValue: warnAboutSuspiciousLinks, oldValue: oldValue, key: Keys.warnAboutSuspiciousLinks) }
-    }
-
-    /// Future: URLSafetyChecker's raw-IP-address heuristic, individually toggleable.
-    @Published var flagRawIPLinks: Bool {
-        didSet { persist(newValue: flagRawIPLinks, oldValue: oldValue, key: Keys.flagRawIPLinks) }
-    }
-
-    /// Future: URLSafetyChecker's homograph/mixed-script heuristic, individually toggleable.
-    @Published var flagMixedScriptDomains: Bool {
-        didSet { persist(newValue: flagMixedScriptDomains, oldValue: oldValue, key: Keys.flagMixedScriptDomains) }
-    }
-
-    /// Future: URLSafetyChecker's punycode heuristic, individually toggleable.
-    @Published var flagPunycodeDomains: Bool {
-        didSet { persist(newValue: flagPunycodeDomains, oldValue: oldValue, key: Keys.flagPunycodeDomains) }
     }
 
     /// Future: opt-in to Sparkle's anonymous system-profile data. Currently
@@ -99,6 +108,8 @@ final class AppSettings: ObservableObject {
         static let flagRawIPLinks = "flagRawIPLinks"
         static let flagMixedScriptDomains = "flagMixedScriptDomains"
         static let flagPunycodeDomains = "flagPunycodeDomains"
+        static let flagDeepSubdomains = "flagDeepSubdomains"
+        static let enablePreviewWindow = "enablePreviewWindow"
         static let shareAnonymousSystemInfo = "shareAnonymousSystemInfo"
         static let notifyAboutBetaUpdates = "notifyAboutBetaUpdates"
     }
@@ -120,6 +131,8 @@ final class AppSettings: ObservableObject {
         flagRawIPLinks = defaults.object(forKey: Keys.flagRawIPLinks) as? Bool ?? true
         flagMixedScriptDomains = defaults.object(forKey: Keys.flagMixedScriptDomains) as? Bool ?? true
         flagPunycodeDomains = defaults.object(forKey: Keys.flagPunycodeDomains) as? Bool ?? true
+        flagDeepSubdomains = defaults.object(forKey: Keys.flagDeepSubdomains) as? Bool ?? true
+        enablePreviewWindow = defaults.object(forKey: Keys.enablePreviewWindow) as? Bool ?? true
         shareAnonymousSystemInfo = defaults.bool(forKey: Keys.shareAnonymousSystemInfo)
         notifyAboutBetaUpdates = defaults.bool(forKey: Keys.notifyAboutBetaUpdates)
     }

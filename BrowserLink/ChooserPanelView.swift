@@ -15,7 +15,7 @@ struct ChooserPanelView: View {
     @State private var hasConfirmedDanger = false
     @StateObject private var faviconLoader = FaviconLoader()
     @Environment(\.colorScheme) private var colorScheme
-
+    
     private var safetyResult: URLSafetyResult {
         URLSafetyChecker.check(url)
     }
@@ -32,9 +32,11 @@ struct ChooserPanelView: View {
                 }
 
                 VStack(spacing: 14) {
-                    previewOption
-
-                    if !browsers.isEmpty {
+                    
+                    if AppSettings.shared.enablePreviewWindow {
+                        // Situation 1: both shown
+                        previewOption
+                        
                         HStack(spacing: 8) {
                             Rectangle().fill(.secondary.opacity(0.2)).frame(height: 1)
                             Text("OR OPEN IN")
@@ -44,8 +46,26 @@ struct ChooserPanelView: View {
                             Rectangle().fill(.secondary.opacity(0.2)).frame(height: 1)
                         }
                         .padding(.vertical, 6)
-
+                        
                         browserGrid
+                    } else {
+                        if !browsers.isEmpty {
+                            // Situation 2: only picker shown
+                            Text("Open your link in:")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .fixedSize()
+                            Rectangle().fill(.secondary.opacity(0.2)).frame(height: 1)
+                            browserGrid
+                        } else if browsers.isEmpty {
+                            // Situation 3: only preview shown
+                            Text("We did not detect a browser on your system. Use our preview window as a fallback.")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .fixedSize()
+                            Rectangle().fill(.secondary.opacity(0.2)).frame(height: 1)
+                            previewOption
+                        }
                     }
                 }
                 .padding(24)
@@ -73,6 +93,11 @@ struct ChooserPanelView: View {
         .scaleEffect(hasAppeared ? 1 : 0.9)
         .opacity(hasAppeared ? 1 : 0)
         .onAppear {
+            if AppSettings.shared.playSoundOnChooserAppear {
+                if let url = Bundle.main.url(forResource: "pop", withExtension: "mp3") {
+                    NSSound(contentsOf: url, byReference: true)?.play()
+                }
+            }
             withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) {
                 hasAppeared = true
             }

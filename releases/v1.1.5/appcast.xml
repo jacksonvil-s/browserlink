@@ -1,0 +1,14 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>BrowserLink</title>
+        <item>
+            <title>1.1.5</title>
+            <pubDate>Thu, 13 Aug 2026 13:29:44 +1000</pubDate>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>1.1.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://raw.githubusercontent.com/jacksonvil-s/browserlink/main/BrowserLink-1.1.5.zip" length="1744054" type="application/octet-stream" sparkle:edSignature="ldBVzM/EBDqN056QNhKNqnhRBwJREyzvZ3VxJnxRMisvqSfKcEiR38Pstf3Q3Brq+J1bB4bCR4giIjQiGZECAw=="/>
+        </item>
+    </channel>
+</rss>

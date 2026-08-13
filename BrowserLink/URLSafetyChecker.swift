@@ -37,55 +37,67 @@ enum URLSafetyChecker {
     ]
 
     static func check(_ url: URL) -> URLSafetyResult {
-        var reasons: [String] = []
-
-        guard let host = url.host?.lowercased() else {
-            return URLSafetyResult(isSuspicious: false, reasons: [])
-        }
-
-        // 1. Raw IP address instead of a domain name.
-        if isIPAddress(host) {
-            reasons.append("This link points directly to a raw IP address instead of a normal domain name — legitimate sites almost never do this. (Security warning level 2, warning)")
-        }
-
-        // 2. Dangerous URI schemes that can execute code or access local data.
-        if let scheme = url.scheme?.lowercased(), ["javascript", "data", "file"].contains(scheme) {
-            reasons.append("This link uses the \"\(scheme):\" scheme, which can run code or access local files directly. (Security warning level 1, serious)")
-        }
-
-        // 3. Homograph / mixed-script detection — catches lookalike domains
-        // using non-Latin characters that visually resemble Latin ones
-        // (e.g. Cyrillic "а" instead of Latin "a").
-        if containsMixedScripts(host) {
-            reasons.append("This domain mixes different alphabets/scripts, a common trick to visually impersonate a trusted site. (Security warning level 2, warning)")
-        }
-
-        // 4. Brand name + suspicious TLD or excessive subdomain combination.
-        let brandMatch = commonlyImpersonatedBrands.first { host.contains($0) }
-        if let brand = brandMatch {
-            let isBrandsOwnDomain = host == "\(brand).com" || host.hasSuffix(".\(brand).com")
-            let hasSuspiciousTLD = suspiciousTLDs.contains { host.hasSuffix($0) }
-            let subdomainCount = host.components(separatedBy: ".").count
-
-            if !isBrandsOwnDomain && (hasSuspiciousTLD || subdomainCount > 3) {
-                reasons.append("This domain includes \"\(brand)\" but isn't \(brand)'s actual domain, which is a common phishing pattern. (Security warning level 2, warning)")
+        if !AppSettings.shared.warnAboutSuspiciousLinks {
+            // Feature disabled — treat as safe.
+            return .safe
+        } else {
+            var reasons: [String] = []
+            
+            guard let host = url.host?.lowercased() else {
+                return URLSafetyResult(isSuspicious: false, reasons: [])
             }
+            
+            // 1. Raw IP address instead of a domain name.
+            if AppSettings.shared.flagRawIPLinks {
+                if isIPAddress(host) {
+                    reasons.append("This link points directly to a raw IP address instead of a normal domain name — legitimate sites almost never do this. (Security warning level 2, warning)")
+                }
+            }
+            
+            // 2. Dangerous URI schemes that can execute code or access local data.
+            if let scheme = url.scheme?.lowercased(), ["javascript", "data", "file"].contains(scheme) {
+                reasons.append("This link uses the \"\(scheme):\" scheme, which can run code or access local files directly. (Security warning level 1, serious)")
+            }
+            
+            // 3. Homograph / mixed-script detection — catches lookalike domains
+            // using non-Latin characters that visually resemble Latin ones
+            // (e.g. Cyrillic "а" instead of Latin "a").
+            if AppSettings.shared.flagMixedScriptDomains {
+                if containsMixedScripts(host) {
+                    reasons.append("This domain mixes different alphabets/scripts, a common trick to visually impersonate a trusted site. (Security warning level 2, warning)")
+                }
+            }
+            
+            // 4. Brand name + suspicious TLD or excessive subdomain combination.
+            let brandMatch = commonlyImpersonatedBrands.first { host.contains($0) }
+            if let brand = brandMatch {
+                let isBrandsOwnDomain = host == "\(brand).com" || host.hasSuffix(".\(brand).com")
+                let hasSuspiciousTLD = suspiciousTLDs.contains { host.hasSuffix($0) }
+                let subdomainCount = host.components(separatedBy: ".").count
+                
+                if !isBrandsOwnDomain && (hasSuspiciousTLD || subdomainCount > 3) {
+                    reasons.append("This domain includes \"\(brand)\" but isn't \(brand)'s actual domain, which is a common phishing pattern. (Security warning level 2, warning)")
+                }
+            }
+            
+            // 5. Excessive subdomain nesting, a classic obfuscation tactic
+            // (e.g. paypal.com.verify-account.suspicious-site.xyz).
+            if AppSettings.shared.flagDeepSubdomains {
+                let labelCount = host.components(separatedBy: ".").count
+                if labelCount > 5 {
+                    reasons.append("This domain has an unusually deep subdomain structure, which is sometimes used to disguise the real destination. (Security warning level 3, advisory)")
+                }
+            }
+            
+            // 6. Punycode domains (xn--) — often used for homograph attacks,
+            // though also legitimately used for real internationalized domains.
+            if AppSettings.shared.flagPunycodeDomains {
+                if host.contains("xn--") {
+                    reasons.append("This domain uses punycode encoding, which can be used to visually disguise the real destination. (Security warning level 2, warning)")
+                }
+            }
+            return URLSafetyResult(isSuspicious: !reasons.isEmpty, reasons: reasons)
         }
-
-        // 5. Excessive subdomain nesting, a classic obfuscation tactic
-        // (e.g. paypal.com.verify-account.suspicious-site.xyz).
-        let labelCount = host.components(separatedBy: ".").count
-        if labelCount > 4 {
-            reasons.append("This domain has an unusually deep subdomain structure, which is sometimes used to disguise the real destination. (Security warning level 3, advisory)")
-        }
-
-        // 6. Punycode domains (xn--) — often used for homograph attacks,
-        // though also legitimately used for real internationalized domains.
-        if host.contains("xn--") {
-            reasons.append("This domain uses punycode encoding, which can be used to visually disguise the real destination. (Security warning level 2, warning)")
-        }
-
-        return URLSafetyResult(isSuspicious: !reasons.isEmpty, reasons: reasons)
     }
 
     private static func isIPAddress(_ host: String) -> Bool {
@@ -126,3 +138,4 @@ enum URLSafetyChecker {
         return hasLatin && hasOtherScript
     }
 }
+
