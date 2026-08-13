@@ -4,6 +4,10 @@ A browser you can set as default to direct you to other browsers
 > [!important]
 > Because Sparkle in versions 1.1.0-1.1.2 is unusable, you MUST update manually to 1.1.3 or above to make it functional. This is due to a permissions issue which is batched with these old versions.
 
+# macOS versions support
+The app supports version 14 (Sonoma) and newer.
+The app is tested on macOS 27 beta, and is expected to work normally.
+
 # User manual
 Coming soon.
 
