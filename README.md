@@ -20,11 +20,12 @@ If a version is not security-supported, do not open a security report for it.
 
 If a version is supported (feature or security), then open an issue (or security report) for the version. I will happily review and patch if it's supported.
 
-| Version | Technical and features support | Sparkle included | Security support |
+| Version | Technical and features support | Security support | Sparkle included |
 | ------- | ------------------ | ------------------- | ------------------- |
-| 1.1.4 (latest) | ✅ | ✅ | ✅ |
-| 1.1.3 | ✅ | ✅ | ✅ |
-| 1.1.2 | :x: | 🟡 | ✅ |
-| 1.1.1 | :x: | 🟡 | ✅ |
-| 1.1.0 | :x: | 🟡 | ✅ |
-| 1.0.0 | :x: | :x: | ✅ |
+| 1.1.5 (latest) | ✅ | ✅ | ✅
+| 1.1.4 | ✅ | ✅ | ✅
+| 1.1.3 | ✅ | ✅ | ✅
+| 1.1.2 | :x: | ✅ | 🟡
+| 1.1.1 | :x: | ✅ | 🟡
+| 1.1.0 | :x: | ✅ | 🟡
+| 1.0.0 | :x: | ✅ | :x:
