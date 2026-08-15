@@ -26,7 +26,8 @@ If a version is supported (feature or security), then open an issue (or security
 
 | Version | Technical and features support | Security support | Sparkle included |
 | ------- | ------------------ | ------------------- | ------------------- |
-| 1.1.5 (latest) | ✅ | ✅ | ✅
+| 1.2.0 (latest) | ✅ | ✅ | ✅
+| 1.1.5 | ✅ | ✅ | ✅
 | 1.1.4 | ✅ | ✅ | ✅
 | 1.1.3 | ✅ | ✅ | ✅
 | 1.1.2 | :x: | ✅ | 🟡
