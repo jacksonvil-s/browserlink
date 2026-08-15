@@ -14,7 +14,9 @@ struct ChooserPanelView: View {
     @State private var hasAppeared = false
     @State private var hasConfirmedDanger = false
     @StateObject private var faviconLoader = FaviconLoader()
+    @State private var showBrowserMenu = false
     @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var settings = AppSettings.shared
     
     private var safetyResult: URLSafetyResult {
         URLSafetyChecker.check(url)
@@ -81,7 +83,7 @@ struct ChooserPanelView: View {
                 // A very faint accent-tinted wash to make it feel "alive" and
                 // tied to the system theme rather than generic gray glass.
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.06))
+                    .fill(settings.tintColor.opacity(0.06))
             }
         )
         .overlay(
@@ -153,7 +155,7 @@ struct ChooserPanelView: View {
 
     private var faviconPlaceholder: some View {
         RoundedRectangle(cornerRadius: 11, style: .continuous)
-            .fill(Color.accentColor.opacity(0.18))
+            .fill(settings.tintColor.opacity(0.18))
             .frame(width: 42, height: 42)
             .overlay(
                 Group {
@@ -165,7 +167,7 @@ struct ChooserPanelView: View {
                     } else {
                         Image(systemName: "globe")
                             .font(.system(size: 18, weight: .medium))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(settings.tintColor)
                     }
                 }
             )
@@ -237,7 +239,7 @@ struct ChooserPanelView: View {
             HStack(spacing: 16) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(Color.accentColor.gradient)
+                        .fill(settings.tintColor.gradient)
                         .frame(width: 50, height: 50)
                     Image(systemName: "eye.fill")
                         .font(.system(size: 20, weight: .medium))
@@ -259,11 +261,11 @@ struct ChooserPanelView: View {
             .padding(18)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.1))
+                    .fill(settings.tintColor.opacity(0.1))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 1)
+                    .strokeBorder(settings.tintColor.opacity(0.25), lineWidth: 1)
             )
         }
         .buttonStyle(HoverScaleButtonStyle())

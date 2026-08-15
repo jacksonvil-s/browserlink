@@ -32,6 +32,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The Preferences window. Built once, shown/hidden as needed rather
     /// than recreated each time (avoids losing toggle state / flicker).
     private var preferencesWindow: NSWindow?
+    
+    /// The first-run onboarding window. Only ever created once per launch —
+    /// and only at all if `AppSettings.shared.hasCompletedOnboarding` is
+    /// still false — then released for good once the user finishes it.
+    private var onboardingWindow: NSWindow?
 
     /// Global keyboard shortcut monitor (⌥⇧B) that reopens Preferences even
     /// when the menu bar icon is hidden — otherwise a hidden icon would leave
@@ -43,12 +48,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        setupGlobalShortcut()
+        observeSettings()
+
+        if AppSettings.shared.hasCompletedOnboarding {
+            completeLaunchSetup()
+        } else {
+            presentOnboarding()
+        }
+    }
+
+    /// The normal launch path: status item + menu, if not hidden. Split out
+    /// from `applicationDidFinishLaunching` so onboarding's completion
+    /// handler can trigger it too, once the user finishes the first-run flow.
+    private func completeLaunchSetup() {
         if !AppSettings.shared.hideMenuBarIcon {
             setupStatusItem()
             rebuildMenu()
         }
-        setupGlobalShortcut()
-        observeSettings()
     }
 
     /// Subscribes to the shared settings so that ANY change — whether it
@@ -111,6 +128,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.openPreferences()
             }
         }
+    }
+    
+    // MARK: - Onboarding
+
+    /// Builds and shows the onboarding window — called either once at
+    /// first launch (from `applicationDidFinishLaunching`) or on demand
+    /// (from `restartOnboarding()`, wired to Preferences → "Restart
+    /// onboarding"). If a window is already open, just brings it forward
+    /// instead of creating a duplicate.
+    private func presentOnboarding() {
+        if let existing = onboardingWindow {
+            NSApp.activate(ignoringOtherApps: true)
+            existing.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let view = OnboardingView(onFinish: { [weak self] in
+            self?.onboardingWindow?.close()
+            self?.onboardingWindow = nil
+            AppSettings.shared.hasCompletedOnboarding = true
+            self?.completeLaunchSetup()
+        })
+        let hosting = NSHostingController(rootView: view)
+
+        let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let windowWidth = min(max(screenFrame.width * 0.4, 640), 760)
+        let windowHeight = min(max(screenFrame.height * 0.62, 620), 760)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hosting
+
+        // Same fix as ChooserPanelView/PreviewWindow: NSHostingController
+        // sizes itself to its SwiftUI content's ideal size rather than
+        // honoring contentRect, which is what made this window render at
+        // OnboardingView's old hardcoded 520x460 regardless of what was
+        // requested here. Forcing the hosting view's frame (and setting
+        // content size explicitly) makes the window actually match.
+        hosting.view.frame = NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight)
+        window.setContentSize(NSSize(width: windowWidth, height: windowHeight))
+
+        window.title = "Welcome to BrowserLink"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.hasShadow = true
+        window.isReleasedWhenClosed = false
+        window.center()
+        onboardingWindow = window
+
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    /// Re-opens onboarding on demand without relaunching the app. Resets
+    /// `hasCompletedOnboarding` first, so if the user closes the window via
+    /// the close button mid-flow (rather than finishing it), it'll
+    /// correctly show again on next launch too.
+    func restartOnboarding() {
+        onboardingWindow?.close()
+        onboardingWindow = nil
+        AppSettings.shared.hasCompletedOnboarding = false
+        presentOnboarding()
     }
 
     // MARK: - Menu Bar
@@ -237,16 +323,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             updater: updaterController.updater,
             onSetDefaultBrowser: { [weak self] in
                 self?.promptSetDefaultBrowser()
+            },
+            onRestartOnboarding: { [weak self] in
+                self?.restartOnboarding()
             }
         )
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 540),
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 540),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.contentViewController = hosting
+
+        hosting.view.frame = NSRect(x: 0, y: 0, width: 720, height: 540)
+        window.setContentSize(NSSize(width: 720, height: 540))
+
         window.title = "BrowserLink Preferences"
         window.isReleasedWhenClosed = false
         window.center()

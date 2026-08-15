@@ -4,6 +4,7 @@ import Sparkle
 struct PreferencesView: View {
     let updater: SPUUpdater
     let onSetDefaultBrowser: () -> Void
+    let onRestartOnboarding: () -> Void
 
     /// The shared settings object — rows below write straight into it,
     /// which is what keeps this window and the menu bar menu in sync.
@@ -13,23 +14,29 @@ struct PreferencesView: View {
 
     init(
         updater: SPUUpdater,
-        onSetDefaultBrowser: @escaping () -> Void
+        onSetDefaultBrowser: @escaping () -> Void,
+        onRestartOnboarding: @escaping () -> Void
     ) {
         self.updater = updater
         self.onSetDefaultBrowser = onSetDefaultBrowser
+        self.onRestartOnboarding = onRestartOnboarding
     }
 
     var body: some View {
         VStack(spacing: 0) {
             TabView(selection: $selectedTab) {
-                GeneralPane(settings: settings)
+                GeneralPane(settings: settings, onRestartOnboarding: onRestartOnboarding)
                     .tabItem { Label("General", systemImage: "gearshape") }
                     .tag(PreferencesTab.general)
 
                 BrowserPane(settings: settings, onSetDefaultBrowser: onSetDefaultBrowser)
                     .tabItem { Label("Browser", systemImage: "globe") }
                     .tag(PreferencesTab.browser)
-
+                
+                ApperancePane(settings: settings)
+                    .tabItem { Label("Apperance", systemImage: "paintpalette") }
+                    .tag(PreferencesTab.apperance)
+                
                 SecurityPane(settings: settings)
                     .tabItem { Label("Security", systemImage: "checkmark.shield") }
                     .tag(PreferencesTab.security)
@@ -38,7 +45,7 @@ struct PreferencesView: View {
                     .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
                     .tag(PreferencesTab.updates)
 
-                AboutPane()
+                AboutPane(settings: settings)
                     .tabItem { Label("About", systemImage: "info.circle") }
                     .tag(PreferencesTab.about)
             }
@@ -55,7 +62,8 @@ struct PreferencesView: View {
             }
             .padding(14)
         }
-        .frame(width: 480, height: 540)
+        .tint(settings.tintColor)
+        .frame(minWidth: 560, idealWidth: 560, minHeight: 540, idealHeight: 540)
         .onAppear {
             // Catches the case where the user changed the login-item state
             // from outside the app (System Settings → General → Login
@@ -69,6 +77,7 @@ struct PreferencesView: View {
 private enum PreferencesTab: Hashable {
     case general
     case browser
+    case apperance
     case security
     case updates
     case about
@@ -183,18 +192,13 @@ private struct ComingSoonRow: View {
 
 private struct GeneralPane: View {
     @ObservedObject var settings: AppSettings
+    let onRestartOnboarding: () -> Void
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 SettingsCard(title: "Startup") {
                     SwitchRow(title: "Launch at Login", isOn: $settings.launchAtLoginEnabled)
-
-                    RowDivider()
-
-                    Text("Note: hide icon in menu bar setting is now removed. As a replacement, use the system settings toggle located in menu bar (MacOS 26+)")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
                 }
 
                 SettingsCard(title: "Chooser") {
@@ -211,6 +215,14 @@ private struct GeneralPane: View {
                         isOn: $settings.showFaviconsInChooser
                     )
                 }
+                
+                SettingsCard(title: "Onboarding") {
+                    Button("Restart onboarding") {
+                        onRestartOnboarding()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(14)
 
                 Spacer()
             }
@@ -265,6 +277,44 @@ private struct BrowserPane: View {
             }
             .padding(24)
         }
+    }
+}
+
+// MARK: - Apperance Pane
+private struct ApperancePane: View {
+    @ObservedObject var settings: AppSettings
+    
+    private var colorBinding: Binding<Color> {
+        Binding(
+            get: { settings.resolvedInterfaceColour ?? .accentColor },
+            set: { settings.interfaceColour = $0.toHex() ?? "" }
+        )
+    }
+    
+    var body: some View {
+        
+        SettingsCard(title: "Appearance") {
+            ColorPicker("Interface Colour", selection: colorBinding, supportsOpacity: false)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            
+            Divider().opacity(0.5).padding(.leading, 14)
+            
+            Button("Use System Colour") {
+                settings.interfaceColour = ""
+            }
+            .buttonStyle(.borderedProminent)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            
+            Text("The interface colour will appear mostly everywhere around the UI. There may be a limited amount of instances where the system accent colour may be seen instead.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+                .padding(.bottom, 8)
+        }
+        .padding(14)
+        
     }
 }
 
@@ -341,6 +391,7 @@ private struct UpdatesPane: View {
     @State private var automaticallyChecksForUpdates: Bool
     @State private var automaticallyDownloadsUpdates: Bool
     @State private var checkFrequency: CheckFrequency
+    @State private var selectedUpdateChannel: UpdateChannel
 
     init(settings: AppSettings, updater: SPUUpdater) {
         self.settings = settings
@@ -348,13 +399,14 @@ private struct UpdatesPane: View {
         _automaticallyChecksForUpdates = State(initialValue: updater.automaticallyChecksForUpdates)
         _automaticallyDownloadsUpdates = State(initialValue: updater.automaticallyDownloadsUpdates)
         _checkFrequency = State(initialValue: CheckFrequency(seconds: updater.updateCheckInterval))
+        _selectedUpdateChannel = State(initialValue: settings.updateChannel)
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 SettingsCard(title: "Automatic Updates") {
-                    SettingsRow(title: "Check for Updates") {
+                    SettingsRow(title: "Check for Updates automatically") {
                         Toggle("", isOn: $automaticallyChecksForUpdates)
                             .toggleStyle(.switch)
                             .labelsHidden()
@@ -369,9 +421,9 @@ private struct UpdatesPane: View {
                                 }
                             }
                     }
-
+                    
                     RowDivider()
-
+                    
                     SettingsRow(title: "Frequency") {
                         Picker("", selection: $checkFrequency) {
                             ForEach(CheckFrequency.allCases) { frequency in
@@ -387,9 +439,9 @@ private struct UpdatesPane: View {
                         }
                     }
                     .opacity(automaticallyChecksForUpdates ? 1 : 0.4)
-
+                    
                     RowDivider()
-
+                    
                     SettingsRow(title: "Download Automatically") {
                         Toggle("", isOn: $automaticallyDownloadsUpdates)
                             .toggleStyle(.switch)
@@ -400,13 +452,35 @@ private struct UpdatesPane: View {
                             }
                     }
                     .opacity(automaticallyChecksForUpdates ? 1 : 0.4)
-
+                    
                     RowDivider()
-
-                    ComingSoonRow(
-                        title: "Receive Beta updates",
-                        subtitle: "Beta updates may have bugs. Proceed with caution."
-                                        )
+                    
+                    SettingsRow(
+                        title: "Update Channel",
+                        subtitle: selectedUpdateChannel.explanation
+                    ) {
+                        HStack (spacing: 8) {
+                            Text("Coming Soon")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(.secondary.opacity(0.15)))
+                            
+                            Picker("", selection: $selectedUpdateChannel) {
+                                ForEach(UpdateChannel.allCases) { channel in
+                                    Text(channel.label).tag(channel)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(width: 160)
+                            .onChange(of: selectedUpdateChannel) { _, newValue in
+                                settings.updateChannel = newValue
+                            }
+                            .disabled(true)
+                        }
+                    }
                 }
 
                 SettingsCard(title: "Privacy") {
@@ -446,13 +520,16 @@ private struct UpdatesPane: View {
 // MARK: - About Pane
 
 private struct AboutPane: View {
+    
+    @ObservedObject var settings: AppSettings
+    
     var body: some View {
         VStack(spacing: 14) {
             Spacer()
 
             Image(systemName: "link.circle.fill")
                 .font(.system(size: 60))
-                .foregroundStyle(Color.accentColor.gradient)
+                .foregroundStyle(settings.tintColor.gradient)
 
             VStack(spacing: 4) {
                 Text("BrowserLink")
@@ -473,7 +550,8 @@ private struct AboutPane: View {
 
             VStack(spacing: 3) {
                 Text("Update checking powered by Sparkle.")
-                Text("BrowserLink, \(currentYear). This project is licensed under Apache 2.0.")
+                Text("BrowserLink, \(currentYear). This project is licensed under Apache 2.0. The full source code is available on Github.")
+                Text("Visit https://github.com/jacksonvil-s/browserlink for more info.")
             }
             .font(.system(size: 10.5))
             .foregroundStyle(.tertiary)

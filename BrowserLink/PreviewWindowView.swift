@@ -12,6 +12,7 @@ struct PreviewWindowView: View {
 
     @StateObject private var viewModel = PreviewViewModel()
     @State private var showBrowserMenu = false
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -155,11 +156,11 @@ struct PreviewWindowView: View {
             Text("Ephemeral")
                 .font(.system(size: 10, weight: .semibold))
         }
-        .foregroundStyle(Color.accentColor)
+        .foregroundStyle(settings.tintColor)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
-            Capsule().fill(Color.accentColor.opacity(0.14))
+            Capsule().fill(settings.tintColor.opacity(0.14))
         )
     }
 

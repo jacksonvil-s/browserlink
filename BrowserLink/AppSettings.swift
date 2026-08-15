@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Combine
 
 /// Single source of truth for app preferences. Both the menu bar menu
@@ -28,6 +29,10 @@ final class AppSettings: ObservableObject {
 
     @Published var hideMenuBarIcon: Bool {
         didSet { persist(newValue: hideMenuBarIcon, oldValue: oldValue, key: Keys.hideMenuBarIcon) }
+    }
+    
+    @Published var hasCompletedOnboarding: Bool {
+        didSet { persist(newValue: hasCompletedOnboarding, oldValue: oldValue, key: Keys.hasCompletedOnboarding) }
     }
     
     /// FaviconLoader already fetches these — this would let
@@ -65,13 +70,29 @@ final class AppSettings: ObservableObject {
         didSet { persist(newValue: enablePreviewWindow, oldValue: oldValue, key: Keys.enablePreviewWindow) }
     }
 
-    // MARK: - Future (persisted now, not yet read by any behavior)
-
-    /// Future: play a short sound when the chooser panel appears.
+    /// Plays a short sound when the chooser panel appears.
     @Published var playSoundOnChooserAppear: Bool {
         didSet { persist(newValue: playSoundOnChooserAppear, oldValue: oldValue, key: Keys.playSoundOnChooserAppear) }
     }
+    
+    @Published var interfaceColour: String {
+        didSet { persist(newValue: interfaceColour, oldValue: oldValue, key: Keys.interfaceColour)}
+    }
+    
+    var resolvedInterfaceColour: Color? {
+        interfaceColour.isEmpty ? nil : Color(hex: interfaceColour)
+    }
+    
+    /// The effective accent color the UI should use — the user's custom
+    /// interfaceColour if set, otherwise the system accent color. Views that
+    /// want to respect the custom tint should read this instead of writing
+    /// `settings.tintColor` directly.
+    var tintColor: Color {
+        resolvedInterfaceColour ?? .accentColor
+    }
 
+    // MARK: - Future (persisted now, not yet read by any behavior)
+    
     /// Future: remember a chosen browser per-domain and skip the chooser
     /// next time a link from that domain is opened.
     @Published var rememberPerSiteChoices: Bool {
@@ -92,10 +113,11 @@ final class AppSettings: ObservableObject {
         didSet { persist(newValue: shareAnonymousSystemInfo, oldValue: oldValue, key: Keys.shareAnonymousSystemInfo) }
     }
 
-    /// Future: opt in to a beta update channel (would point Sparkle at a
-    /// separate appcast feed).
-    @Published var notifyAboutBetaUpdates: Bool {
-        didSet { persist(newValue: notifyAboutBetaUpdates, oldValue: oldValue, key: Keys.notifyAboutBetaUpdates) }
+    /// Future: which release channel to receive update notifications for
+    /// (would point Sparkle at a different appcast feed per channel). Not
+    /// wired to Sparkle or any update logic yet — persisted only.
+    @Published var updateChannel: UpdateChannel {
+        didSet { persist(newValue: updateChannel.rawValue, oldValue: oldValue.rawValue, key: Keys.updateChannel) }
     }
 
     private enum Keys {
@@ -111,7 +133,9 @@ final class AppSettings: ObservableObject {
         static let flagDeepSubdomains = "flagDeepSubdomains"
         static let enablePreviewWindow = "enablePreviewWindow"
         static let shareAnonymousSystemInfo = "shareAnonymousSystemInfo"
-        static let notifyAboutBetaUpdates = "notifyAboutBetaUpdates"
+        static let updateChannel = "updateChannel"
+        static let hasCompletedOnboarding = "hasCompletedOnboarding"
+        static let interfaceColour = "interfaceColour"
     }
 
     private init() {
@@ -134,10 +158,12 @@ final class AppSettings: ObservableObject {
         flagDeepSubdomains = defaults.object(forKey: Keys.flagDeepSubdomains) as? Bool ?? true
         enablePreviewWindow = defaults.object(forKey: Keys.enablePreviewWindow) as? Bool ?? true
         shareAnonymousSystemInfo = defaults.bool(forKey: Keys.shareAnonymousSystemInfo)
-        notifyAboutBetaUpdates = defaults.bool(forKey: Keys.notifyAboutBetaUpdates)
+        updateChannel = UpdateChannel(rawValue: defaults.string(forKey: Keys.updateChannel) ?? "") ?? .stable
+        hasCompletedOnboarding = defaults.bool(forKey: Keys.hasCompletedOnboarding)
+        interfaceColour = defaults.string(forKey: Keys.interfaceColour) ?? ""
     }
 
-    private func persist(newValue: Bool, oldValue: Bool, key: String) {
+    private func persist<T: Equatable>(newValue: T, oldValue: T, key: String) {
         guard newValue != oldValue else { return }
         UserDefaults.standard.set(newValue, forKey: key)
     }
@@ -151,6 +177,34 @@ final class AppSettings: ObservableObject {
         let live = LoginItemHelper.isEnabled
         if live != launchAtLoginEnabled {
             launchAtLoginEnabled = live
+        }
+    }
+}
+
+// MARK: Update Channel
+enum UpdateChannel: String, CaseIterable, Identifiable {
+    case stable
+    case releaseCandidate
+    case beta
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .stable: return "Stable"
+        case .releaseCandidate: return "Release Candidate"
+        case .beta: return "Beta"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .stable:
+            return "Fully tested releases only. Recommended for most people."
+        case .releaseCandidate:
+            return "Near-final builds shortly before a stable release. Usually solid, occasional rough edges."
+        case .beta:
+            return "Early, in-development builds. May be unstable or contain bugs."
         }
     }
 }
