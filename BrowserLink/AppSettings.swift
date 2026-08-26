@@ -66,13 +66,18 @@ final class AppSettings: ObservableObject {
         didSet { persist(newValue: flagDeepSubdomains, oldValue: oldValue, key: Keys.flagDeepSubdomains) }
     }
     
-    @Published var enablePreviewWindow: Bool {
-        didSet { persist(newValue: enablePreviewWindow, oldValue: oldValue, key: Keys.enablePreviewWindow) }
+    /// App mode (Preview window, browser chooser, both)
+    @Published var appMode: AppMode {
+        didSet { persist(newValue: appMode.rawValue, oldValue: oldValue.rawValue, key: Keys.appMode) }
     }
 
     /// Plays a short sound when the chooser panel appears.
     @Published var playSoundOnChooserAppear: Bool {
         didSet { persist(newValue: playSoundOnChooserAppear, oldValue: oldValue, key: Keys.playSoundOnChooserAppear) }
+    }
+    
+    @Published var browserOrder: [String] {
+        didSet { persist(newValue: browserOrder, oldValue: oldValue, key: Keys.browserOrder)}
     }
     
     @Published var interfaceColour: String {
@@ -131,24 +136,33 @@ final class AppSettings: ObservableObject {
         static let flagMixedScriptDomains = "flagMixedScriptDomains"
         static let flagPunycodeDomains = "flagPunycodeDomains"
         static let flagDeepSubdomains = "flagDeepSubdomains"
-        static let enablePreviewWindow = "enablePreviewWindow"
+        static let appMode = "appMode"
         static let shareAnonymousSystemInfo = "shareAnonymousSystemInfo"
         static let updateChannel = "updateChannel"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
+        static let browserOrder = "browserOrder"
         static let interfaceColour = "interfaceColour"
+        static let hasLaunchedBefore = "hasLaunchedBefore"
     }
 
     private init() {
         let defaults = UserDefaults.standard
-
-        launchAtLoginEnabled = LoginItemHelper.isEnabled
+        let hasLaunchedBefore = defaults.bool(forKey: Keys.hasLaunchedBefore)
+        
+        if hasLaunchedBefore {
+            launchAtLoginEnabled = LoginItemHelper.isEnabled
+        } else {
+            launchAtLoginEnabled = false
+            defaults.set(true, forKey: Keys.hasLaunchedBefore)
+        }
+        
         hideMenuBarIcon = defaults.bool(forKey: Keys.hideMenuBarIcon)
 
         // Defaults chosen so each toggle reflects today's actual behavior
         // (e.g. favicons and safety warnings are already always-on) rather
         // than silently changing what the app does the moment it's updated.
-        playSoundOnChooserAppear = defaults.object(forKey: Keys.playSoundOnChooserAppear) as? Bool ?? true
-        showFaviconsInChooser = defaults.object(forKey: Keys.showFaviconsInChooser) as? Bool ?? true
+        playSoundOnChooserAppear = defaults.object(forKey: Keys.playSoundOnChooserAppear) as? Bool ?? false
+        showFaviconsInChooser = defaults.object(forKey: Keys.showFaviconsInChooser) as? Bool ?? false
         rememberPerSiteChoices = defaults.bool(forKey: Keys.rememberPerSiteChoices)
         revealDownloadsInFinder = defaults.bool(forKey: Keys.revealDownloadsInFinder)
         warnAboutSuspiciousLinks = defaults.object(forKey: Keys.warnAboutSuspiciousLinks) as? Bool ?? true
@@ -156,9 +170,10 @@ final class AppSettings: ObservableObject {
         flagMixedScriptDomains = defaults.object(forKey: Keys.flagMixedScriptDomains) as? Bool ?? true
         flagPunycodeDomains = defaults.object(forKey: Keys.flagPunycodeDomains) as? Bool ?? true
         flagDeepSubdomains = defaults.object(forKey: Keys.flagDeepSubdomains) as? Bool ?? true
-        enablePreviewWindow = defaults.object(forKey: Keys.enablePreviewWindow) as? Bool ?? true
+        appMode = AppMode(rawValue: defaults.string(forKey: Keys.appMode) ?? "") ?? .both
         shareAnonymousSystemInfo = defaults.bool(forKey: Keys.shareAnonymousSystemInfo)
         updateChannel = UpdateChannel(rawValue: defaults.string(forKey: Keys.updateChannel) ?? "") ?? .stable
+        browserOrder = defaults.stringArray(forKey: Keys.browserOrder) ?? []
         hasCompletedOnboarding = defaults.bool(forKey: Keys.hasCompletedOnboarding)
         interfaceColour = defaults.string(forKey: Keys.interfaceColour) ?? ""
     }
@@ -204,7 +219,46 @@ enum UpdateChannel: String, CaseIterable, Identifiable {
         case .releaseCandidate:
             return "Near-final builds shortly before a stable release. Usually solid, occasional rough edges."
         case .beta:
-            return "Early, in-development builds. May be unstable or contain bugs."
+            return "Early, in-development builds. May be unstable or contain bugs. Rapid changes."
+        }
+    }
+}
+
+// MARK: App mode
+enum AppMode: String, CaseIterable, Identifiable {
+    case preview
+    case chooser
+    case both
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .preview: return "Preview window only"
+        case .chooser: return "Browser chooser only"
+        case .both: return "Both preview window and browser chooser"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .preview:
+            return "Only the private preview window will be used. You can still preview the link and optionally enable security protections."
+        case .chooser:
+            return "Only the browser chooser is available. You can preview the link and optionally enable security protections."
+        case .both:
+            return "Both the browser chooser and priate preview will appear. You can choose between the 2 as you like."
+        }
+    }
+    
+    var icon: String {
+        switch self {
+        case .preview:
+            return "interface.window"
+        case .chooser:
+            return "square.grid.3x2"
+        case .both:
+            return "capsule.on.rectangle"
         }
     }
 }

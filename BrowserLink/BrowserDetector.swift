@@ -25,7 +25,8 @@ enum BrowserDetector {
         ("org.chromium.Chromium", "Chromium"),
         ("com.vivaldi.Vivaldi", "Vivaldi"),
         ("net.waterfox.waterfox", "Waterfox"),
-        ("app.zen-browser.zen", "Zen Browser")
+        ("app.zen-browser.zen", "Zen Browser"),
+        ("app.floorp.Floorp", "Floorp")
     ]
 
     /// Scans for which of the known browsers are actually installed on this Mac,
@@ -55,5 +56,23 @@ enum BrowserDetector {
             configuration: config,
             completionHandler: nil
         )
+    }
+}
+
+extension BrowserDetector {
+    static func ordered(_ browsers: [InstalledBrowser], by order: [String]) -> [InstalledBrowser] {
+        let lookup = Dictionary(uniqueKeysWithValues: browsers.map { ($0.id, $0) })
+
+        var result: [InstalledBrowser] = []
+        for id in order {
+            if let browser = lookup[id] {
+                result.append(browser)
+            }
+        }
+
+        let remaining = browsers.filter { !order.contains($0.id) }
+        result.append(contentsOf: remaining)
+
+        return result
     }
 }

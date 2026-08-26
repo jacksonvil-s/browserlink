@@ -6,8 +6,8 @@ import Combine
 /// The real brain of the app. Because this is a background agent (LSUIElement = true,
 /// set in Info.plist), there's no Dock icon and no default window — everything is
 /// driven from here.
-final class AppDelegate: NSObject, NSApplicationDelegate {
-
+final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
+    
     /// The persistent menu bar item — our only always-visible presence.
     private var statusItem: NSStatusItem?
 
@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// begins its periodic background check automatically at launch.
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
-        updaterDelegate: nil,
+        updaterDelegate: self,
         userDriverDelegate: nil
     )
 
@@ -144,12 +144,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let view = OnboardingView(onFinish: { [weak self] in
-            self?.onboardingWindow?.close()
-            self?.onboardingWindow = nil
-            AppSettings.shared.hasCompletedOnboarding = true
-            self?.completeLaunchSetup()
-        })
+        let view = OnboardingView(
+            onFinish: { [weak self] in
+                self?.onboardingWindow?.close()
+                self?.onboardingWindow = nil
+                AppSettings.shared.hasCompletedOnboarding = true
+                self?.completeLaunchSetup()
+            }, promptSetDefaultBrowser: { [weak self] in
+                self?.promptSetDefaultBrowser()
+            }
+        )
         let hosting = NSHostingController(rootView: view)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -158,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            styleMask: [.fullSizeContentView, .miniaturizable, .titled],
             backing: .buffered,
             defer: false
         )
@@ -326,6 +330,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onRestartOnboarding: { [weak self] in
                 self?.restartOnboarding()
+            },
+            onShowDebugChooser: { [weak self] in
+                // Fires the real chooser panel with a placeholder URL so the
+                // panel/preview flow can be exercised without an actual
+                // incoming link.
+                self?.presentChooser(for: URL(string: "https://google.com")!)
             }
         )
         let hosting = NSHostingController(rootView: view)
@@ -386,8 +396,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // rather than stacking panels.
         chooserPanel?.close()
 
-        let installedBrowsers = BrowserDetector.installedBrowsers()
-
+        let installedBrowsers = BrowserDetector.ordered(
+            BrowserDetector.installedBrowsers(),
+            by: AppSettings.shared.browserOrder
+        )
+        
         let contentView = ChooserPanelView(
             url: url,
             browsers: installedBrowsers,
@@ -502,4 +515,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         previewWindows[id]?.close()
         previewWindows.removeValue(forKey: id)
     }
+    
+    // MARK: - SPUUpdaterDelegate
+
+        /// Sparkle calls this before every check to decide which
+        /// sparkle:channel-tagged items are eligible. Returning an empty set
+        /// (stable) means only untagged items qualify — RC and beta releases
+        /// are invisible to stable users.
+        func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+            switch AppSettings.shared.updateChannel {
+            case .stable:
+                return []
+            case .releaseCandidate:
+                return ["rc"]
+            case .beta:
+                // Beta users also see RC builds — betas are rarer, so this
+                // keeps them from missing intermediate stabilizing releases.
+                return ["rc", "beta"]
+            }
+        }
+    
 }
+

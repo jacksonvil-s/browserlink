@@ -7,7 +7,9 @@ import SwiftUI
 enum OnboardingStep: Int, CaseIterable {
     case welcome
     case introduction
+    case browser
     case settings
+    case thanks
 }
 
 /// First-run onboarding flow: welcomes the user, briefly explains what the
@@ -26,16 +28,16 @@ struct OnboardingView: View {
     /// Called when the user completes the flow. AppDelegate uses this to
     /// close the window and set `hasCompletedOnboarding = true`.
     let onFinish: () -> Void
-
+    
     @ObservedObject private var settings = AppSettings.shared
     @State private var step: OnboardingStep = .welcome
     @State private var hasAppeared = false
-
+    
     /// Which edge the next/previous step should slide in from — set right
     /// before `step` changes so the transition direction always matches
     /// Continue (forward) vs Back (backward).
     @State private var transitionEdge: Edge = .trailing
-
+    
     var body: some View {
         VStack(spacing: 0) {
             // Welcome is short and fixed, so it's centered directly rather
@@ -53,9 +55,19 @@ struct OnboardingView: View {
                         introductionStep
                             .padding(36)
                     }
+                case .browser:
+                    ScrollView {
+                        browserStep
+                            .padding(36)
+                    }
                 case .settings:
                     ScrollView {
                         settingsStep
+                            .padding(36)
+                    }
+                case .thanks:
+                    ScrollView {
+                        thanksStep
                             .padding(36)
                     }
                 }
@@ -69,7 +81,7 @@ struct OnboardingView: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
-
+            
             Divider().opacity(0.15)
             footer
         }
@@ -95,9 +107,9 @@ struct OnboardingView: View {
             }
         }
     }
-
+    
     // MARK: - Welcome
-
+    
     private var welcomeStep: some View {
         VStack(spacing: 18) {
             Spacer()
@@ -118,14 +130,14 @@ struct OnboardingView: View {
             Spacer()
         }
     }
-
+    
     // MARK: - Introduction
-
+    
     private var introductionStep: some View {
         VStack(alignment: .leading, spacing: 22) {
             Text("What BrowserLink does")
                 .font(.system(size: 20, weight: .semibold))
-
+            
             // TODO: fill in the real feature set/copy here. Placeholders
             // below follow the app's actual behavior as a starting point.
             featureRow(
@@ -156,7 +168,7 @@ struct OnboardingView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-
+    
     private func featureRow(icon: String, title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 14) {
             ZStack {
@@ -176,9 +188,48 @@ struct OnboardingView: View {
             }
         }
     }
+    
+    // MARK: Browser
+    let promptSetDefaultBrowser: () -> Void
+    
+    private var browserStep: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Set as default browser")
+                    .font(.system(size: 20, weight: .semibold))
+                Text("Click the button below to set Browserlink as the default browser. Or you can do this in preferences later.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            Button("Set Browserlink as default browser...") {
+                promptSetDefaultBrowser()
+            }
+            .buttonStyle(.borderedProminent)
+            
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text("App mode")
+                    .font(.system(size: 20, weight: .semibold))
+                Text("Change how the app functions. You can always change this later.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            
+            
+            Picker("", selection: $settings.appMode) {
+                ForEach(AppMode.allCases) { mode in
+                    Label(mode.label, systemImage: mode.icon)
+                        .tag(mode)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.inline)
 
+        }
+    }
+    
     // MARK: - Settings
-
+    
     private var settingsStep: some View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 4) {
@@ -188,14 +239,14 @@ struct OnboardingView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
-
+            
             OnboardingCard(title: "Startup") {
                 onboardingToggleRow(
                     title: "Launch at Login",
                     isOn: $settings.launchAtLoginEnabled
                 )
             }
-
+            
             OnboardingCard(title: "Chooser") {
                 onboardingToggleRow(
                     title: "Show Site Icons in Chooser",
@@ -204,17 +255,11 @@ struct OnboardingView: View {
                 )
                 Divider().opacity(0.5).padding(.leading, 14)
                 onboardingToggleRow(
-                    title: "Enable Quick Preview Window",
-                    subtitle: "Disable if you want a pure browser picker.",
-                    isOn: $settings.enablePreviewWindow
-                )
-                Divider().opacity(0.5).padding(.leading, 14)
-                onboardingToggleRow(
                     title: "Play Sound When Chooser Appears",
                     isOn: $settings.playSoundOnChooserAppear
                 )
             }
-
+            
             OnboardingCard(title: "Security") {
                 onboardingToggleRow(
                     title: "Warn About Suspicious Links",
@@ -226,7 +271,31 @@ struct OnboardingView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-
+    
+    // MARK: Thanks
+    
+    private var thanksStep: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Thank you for chosing this app")
+                    .font(.system(size: 20, weight: .semibold))
+                Text("If you don't have time, feel free to skip over this.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            
+            Text("I want to give a warm thanks for everyone who tries this app.")
+            Text("Making, debugging, and maintaining this app was a pleasure. This app was an immense learning process for me.")
+            Text("If you do like this app, consider starring the repo. It's a small thing to do, it's free, and it helps a lot to have someone recognise my work.")
+            Text("I do want to put a personal thank you for even trying this out- even if it turns out at the end, it's not for you. I do hope you enjoy this app while using it, as much as I enjoy developing it for you.")
+            Text("-Jacksonvil, 2026.")
+            
+            Text("(Press the get started button below to start using the app)")
+                .font(.system(size: 8))
+                .foregroundStyle(.secondary)
+        }
+    }
+    
     /// A rounded, grouped container with a small-caps header — same visual
     /// recipe as PreferencesView's SettingsCard, kept as a local duplicate
     /// here since that one is private to PreferencesView.swift and this
@@ -234,7 +303,7 @@ struct OnboardingView: View {
     private struct OnboardingCard<Content: View>: View {
         let title: String
         @ViewBuilder var content: Content
-
+        
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title.uppercased())
@@ -255,7 +324,7 @@ struct OnboardingView: View {
             }
         }
     }
-
+    
     private func onboardingToggleRow(title: String, subtitle: String? = nil, isOn: Binding<Bool>) -> some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
@@ -275,22 +344,22 @@ struct OnboardingView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
     }
-
+    
     // MARK: - Footer / navigation
-
+    
     private var footer: some View {
         HStack {
             progressDots
-
+            
             Spacer()
-
+            
             if step != .welcome {
                 Button("Back") { goTo(step: previousStep) }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .padding(.trailing, 8)
             }
-
+            
             Button(isLastStep ? "Get Started" : "Continue") {
                 if isLastStep {
                     onFinish()
@@ -304,7 +373,7 @@ struct OnboardingView: View {
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
     }
-
+    
     private var progressDots: some View {
         HStack(spacing: 6) {
             ForEach(OnboardingStep.allCases, id: \.self) { candidate in
@@ -315,19 +384,19 @@ struct OnboardingView: View {
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: step)
     }
-
+    
     private var isLastStep: Bool {
         step.rawValue == OnboardingStep.allCases.count - 1
     }
-
+    
     private var nextStep: OnboardingStep {
         OnboardingStep(rawValue: step.rawValue + 1) ?? step
     }
-
+    
     private var previousStep: OnboardingStep {
         OnboardingStep(rawValue: step.rawValue - 1) ?? step
     }
-
+    
     private func goTo(step newStep: OnboardingStep) {
         transitionEdge = newStep.rawValue > step.rawValue ? .trailing : .leading
         withAnimation(.easeInOut(duration: 0.25)) {

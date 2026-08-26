@@ -5,6 +5,7 @@ struct PreferencesView: View {
     let updater: SPUUpdater
     let onSetDefaultBrowser: () -> Void
     let onRestartOnboarding: () -> Void
+    let onShowDebugChooser: () -> Void
 
     /// The shared settings object — rows below write straight into it,
     /// which is what keeps this window and the menu bar menu in sync.
@@ -15,11 +16,13 @@ struct PreferencesView: View {
     init(
         updater: SPUUpdater,
         onSetDefaultBrowser: @escaping () -> Void,
-        onRestartOnboarding: @escaping () -> Void
+        onRestartOnboarding: @escaping () -> Void,
+        onShowDebugChooser: @escaping () -> Void
     ) {
         self.updater = updater
         self.onSetDefaultBrowser = onSetDefaultBrowser
         self.onRestartOnboarding = onRestartOnboarding
+        self.onShowDebugChooser = onShowDebugChooser
     }
 
     var body: some View {
@@ -45,7 +48,7 @@ struct PreferencesView: View {
                     .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
                     .tag(PreferencesTab.updates)
 
-                AboutPane(settings: settings)
+                AboutPane(settings: settings, onShowDebugChooser: onShowDebugChooser)
                     .tabItem { Label("About", systemImage: "info.circle") }
                     .tag(PreferencesTab.about)
             }
@@ -236,7 +239,7 @@ private struct GeneralPane: View {
 private struct BrowserPane: View {
     @ObservedObject var settings: AppSettings
     let onSetDefaultBrowser: () -> Void
-
+    
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -270,14 +273,29 @@ private struct BrowserPane: View {
                     
                     RowDivider()
                     
-                    SwitchRow(title: "Enable preview window", subtitle: "Disable to have no preview window, just a pure browser picker.", isOn: $settings.enablePreviewWindow)
+                    SettingsRow(
+                        title: "App mode",
+                        subtitle: settings.appMode.explanation
+                    ) {
+                            Picker("", selection: $settings.appMode) {
+                                ForEach(AppMode.allCases) { mode in
+                                    Label(mode.label, systemImage: mode.icon)
+                                        .tag(mode)
+                                }
+                            .labelsHidden()
+                            .frame(width: 250)
+                        }
+                    }
+                    
+                    
                 }
 
                 Spacer()
-            }
+                
+            } //VStack
             .padding(24)
-        }
-    }
+        }//Scroll view
+    } //View
 }
 
 // MARK: - Apperance Pane
@@ -291,30 +309,78 @@ private struct ApperancePane: View {
         )
     }
     
+    @State private var browsers: [InstalledBrowser] = []
+    
     var body: some View {
-        
-        SettingsCard(title: "Appearance") {
-            ColorPicker("Interface Colour", selection: colorBinding, supportsOpacity: false)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-            
-            Divider().opacity(0.5).padding(.leading, 14)
-            
-            Button("Use System Colour") {
-                settings.interfaceColour = ""
+        ScrollView {
+            VStack (alignment: .leading, spacing: 20) {
+                
+                SettingsCard(title: "Appearance") {
+                    ColorPicker("Interface Colour", selection: colorBinding, supportsOpacity: false)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                    
+                    Divider().opacity(0.5).padding(.leading, 14)
+                    
+                    Button("Use System Colour") {
+                        settings.interfaceColour = ""
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    
+                    Text("The interface colour will appear mostly everywhere around the UI. There may be a limited amount of instances where the system accent colour may be seen instead.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                        .padding(.bottom, 8)
+                }
+                .padding(14)
+                
+                SettingsCard(title: "Browser display order") {
+                    List {
+                        ForEach(browsers) { browser in
+                            HStack(spacing: 10) {
+                                Image(nsImage: browser.icon)
+                                    .resizable()
+                                    .frame(width: 20, height: 20)
+                                Text(browser.name)
+                                    .font(.system(size: 13))
+                                Spacer()
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .onMove { indices, newOffset in
+                            browsers.move(fromOffsets: indices, toOffset: newOffset)
+                            AppSettings.shared.browserOrder = browsers.map(\.id)
+                        }
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .frame(height: CGFloat(browsers.count) * 28)  // tune 28 to your actual row height
+                    .onAppear {
+                        browsers = BrowserDetector.ordered(
+                            BrowserDetector.installedBrowsers(),
+                            by: AppSettings.shared.browserOrder
+                        )
+                    }
+                    
+                    Button("Reset to Default Order") {
+                        AppSettings.shared.browserOrder = []
+                        browsers = BrowserDetector.ordered(
+                            BrowserDetector.installedBrowsers(),
+                            by: []
+                        )
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                
+                Spacer()
+                
+                
             }
-            .buttonStyle(.borderedProminent)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            
-            Text("The interface colour will appear mostly everywhere around the UI. There may be a limited amount of instances where the system accent colour may be seen instead.")
-                .font(.system(size: 10.5))
-                .foregroundStyle(.tertiary)
-                .padding(.bottom, 8)
+            .padding(24)
         }
-        .padding(14)
-        
     }
 }
 
@@ -459,26 +525,16 @@ private struct UpdatesPane: View {
                         title: "Update Channel",
                         subtitle: selectedUpdateChannel.explanation
                     ) {
-                        HStack (spacing: 8) {
-                            Text("Coming Soon")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(.secondary.opacity(0.15)))
-                            
-                            Picker("", selection: $selectedUpdateChannel) {
-                                ForEach(UpdateChannel.allCases) { channel in
-                                    Text(channel.label).tag(channel)
-                                }
+                        Picker("", selection: $selectedUpdateChannel) {
+                            ForEach(UpdateChannel.allCases) { channel in
+                                Text(channel.label).tag(channel)
                             }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                            .frame(width: 160)
-                            .onChange(of: selectedUpdateChannel) { _, newValue in
-                                settings.updateChannel = newValue
-                            }
-                            .disabled(true)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 160)
+                        .onChange(of: selectedUpdateChannel) { _, newValue in
+                            settings.updateChannel = newValue
                         }
                     }
                 }
@@ -486,7 +542,7 @@ private struct UpdatesPane: View {
                 SettingsCard(title: "Privacy") {
                     ComingSoonRow(
                         title: "Share Anonymous System Info",
-                        subtitle: "Would help decide which macOS versions and Mac models to keep supporting. No personal data included."
+                        subtitle: "Would help decide which macOS versions and Mac models to keep supporting. No personal data included. You can see what is being sent by using the button below."
                     )
                 }
 
@@ -522,6 +578,7 @@ private struct UpdatesPane: View {
 private struct AboutPane: View {
     
     @ObservedObject var settings: AppSettings
+    let onShowDebugChooser: () -> Void
     
     var body: some View {
         VStack(spacing: 14) {
@@ -552,10 +609,18 @@ private struct AboutPane: View {
                 Text("Update checking powered by Sparkle.")
                 Text("BrowserLink, \(currentYear). This project is licensed under Apache 2.0. The full source code is available on Github.")
                 Text("Visit https://github.com/jacksonvil-s/browserlink for more info.")
+                Text("Thank you for using the app. We apppreciate every support you can give. Please star the repo if you find this app useful.")
             }
             .font(.system(size: 10.5))
             .foregroundStyle(.tertiary)
             .padding(.bottom, 8)
+            
+            Spacer()
+            
+            Button("Debug") {
+                onShowDebugChooser()
+            }
+                
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
@@ -608,3 +673,4 @@ private enum CheckFrequency: CaseIterable, Identifiable, Hashable {
         }
     }
 }
+

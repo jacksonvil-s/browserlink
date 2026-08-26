@@ -35,44 +35,63 @@ struct ChooserPanelView: View {
 
                 VStack(spacing: 14) {
                     
-                    if AppSettings.shared.enablePreviewWindow {
-                        // Situation 1: both shown
-                        previewOption
-                        
-                        HStack(spacing: 8) {
-                            Rectangle().fill(.secondary.opacity(0.2)).frame(height: 1)
-                            Text("OR OPEN IN")
-                                .font(.system(size: 11.5, weight: .semibold))
+                    if !browsers.isEmpty {
+                        switch AppSettings.shared.appMode {
+                        case .preview:
+                            previewOption
+                            Text("Note: browser chooser unavailable because it has been switched off.")
                                 .foregroundStyle(.secondary)
-                                .fixedSize()
-                            Rectangle().fill(.secondary.opacity(0.2)).frame(height: 1)
-                        }
-                        .padding(.vertical, 6)
-                        
-                        browserGrid
-                    } else {
-                        if !browsers.isEmpty {
-                            // Situation 2: only picker shown
+                                .font(.system(size: 8))
+                        case .chooser:
                             Text("Open your link in:")
                                 .font(.system(size: 11.5, weight: .semibold))
                                 .foregroundStyle(.secondary)
                                 .fixedSize()
                             Rectangle().fill(.secondary.opacity(0.2)).frame(height: 1)
                             browserGrid
-                        } else if browsers.isEmpty {
-                            // Situation 3: only preview shown
-                            Text("We did not detect a browser on your system. Use our preview window as a fallback.")
-                                .font(.system(size: 11.5, weight: .semibold))
+                            Text("Note: preview window unavailable because it has been switched off.")
                                 .foregroundStyle(.secondary)
-                                .fixedSize()
-                            Rectangle().fill(.secondary.opacity(0.2)).frame(height: 1)
+                                .font(.system(size: 8))
+                        case .both:
+                            //Both shown
                             previewOption
+                            
+                            HStack(spacing: 8) {
+                                Rectangle().fill(.secondary.opacity(0.2)).frame(height: 1)
+                                Text("OR OPEN IN")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize()
+                                Rectangle().fill(.secondary.opacity(0.2)).frame(height: 1)
+                            }
+                            .padding(.vertical, 6)
+                            
+                            browserGrid
                         }
+                    } else if browsers.isEmpty {
+                        previewOption
+                        Text("Note: browser chooser unavailable because we did not detect a browser on your system.")
+                            .foregroundStyle(.secondary)
+                            .font(.system(size: 8))
                     }
                 }
                 .padding(24)
                 .disabled(safetyResult.isSuspicious && !hasConfirmedDanger)
                 .opacity(safetyResult.isSuspicious && !hasConfirmedDanger ? 0.35 : 1)
+                
+                var appVersion: String {
+                    Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+                }
+
+                var buildNumber: String {
+                    Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
+                }
+                
+                Text("Version \(appVersion) (build \(buildNumber))")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.secondary)
+                
+                Spacer()
             }
         }
         .background(
@@ -105,9 +124,17 @@ struct ChooserPanelView: View {
             }
             faviconLoader.load(for: url)
         }
-        // Dismiss on Escape.
+        // Dismiss on Escape, other keybinds.
         .background(
-            KeyCatcher(onEscape: onDismiss)
+            KeyCatcher(
+                onEscape: onDismiss,
+                onSelectIndex: { index in
+                    if index >= 0 && index < browsers.count {
+                        onOpenIn(browsers[index])
+                    }
+                },
+                onPreview: onPreview
+            )
         )
     }
 
@@ -322,10 +349,14 @@ struct HoverScaleButtonStyle: ButtonStyle {
 /// window/sheet does.
 struct KeyCatcher: NSViewRepresentable {
     let onEscape: () -> Void
+    let onSelectIndex: (Int) -> Void   // new: 0-based index into browsers
+    let onPreview: () -> Void          // new
 
     func makeNSView(context: Context) -> NSView {
         let view = EscapeCatchingView()
         view.onEscape = onEscape
+        view.onSelectIndex = onSelectIndex
+        view.onPreview = onPreview
         return view
     }
 
@@ -333,6 +364,8 @@ struct KeyCatcher: NSViewRepresentable {
 
     final class EscapeCatchingView: NSView {
         var onEscape: (() -> Void)?
+        var onSelectIndex: ((Int) -> Void)?
+        var onPreview: (() -> Void)?
 
         override var acceptsFirstResponder: Bool { true }
 
@@ -344,9 +377,27 @@ struct KeyCatcher: NSViewRepresentable {
         override func keyDown(with event: NSEvent) {
             if event.keyCode == 53 { // Escape
                 onEscape?()
-            } else {
-                super.keyDown(with: event)
+                return
             }
+
+            guard let chars = event.charactersIgnoringModifiers else {
+                super.keyDown(with: event)
+                return
+            }
+            
+            guard event.modifierFlags.intersection([.command, .option, .control]) .isEmpty else {
+                super.keyDown(with: event)
+                return
+            }
+            
+            if let digit = Int(chars) {
+                onSelectIndex?(digit - 1) //Index
+            } else if chars == "p" || chars == "P" {
+                onPreview?() //Preview
+            } else {
+                super.keyDown(with: event) //else
+            }
+
         }
     }
 }
