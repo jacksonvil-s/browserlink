@@ -6,7 +6,7 @@ A browser you can set as default to direct you to other browsers
 
 # macOS versions support
 The app supports version 14 (Sonoma) and newer.
-The app is tested on macOS 27 beta, and is expected to work normally.
+Tested to be working on macOS 26 and 27. Not guaranteed to work on older versions.
 
 # User manual
 Coming soon.
