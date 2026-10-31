@@ -384,9 +384,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
     // "open in default browser," etc). This fires via the Info.plist CFBundleURLTypes
     // registration — see Info.plist for the http/https scheme declarations.
 
+    /// Links waiting for their turn. Links can arrive one call at a time,
+    /// so every new link joins the end of this line.
+    private var queuedURLs: [URL] = []
+
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let url = urls.first else { return }
-        presentChooser(for: url)
+        queuedURLs.append(contentsOf: urls)
+
+        // Only start right away if no chooser is already on screen.
+        if chooserPanel == nil {
+            showNextQueuedURL()
+        }
+    }
+
+    /// Shows the chooser for the next waiting link, if there is one.
+    private func showNextQueuedURL() {
+        guard !queuedURLs.isEmpty else { return }
+        presentChooser(for: queuedURLs.removeFirst())
+    }
+
+    /// Closes the chooser, then shows the next waiting link (if any).
+    private func closeChooser() {
+        chooserPanel?.close()
+        chooserPanel = nil
+
+        guard !queuedURLs.isEmpty else { return }
+
+        // Wait a moment so the old window finishes closing (and any Preview
+        // window finishes opening) before the next chooser appears.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self = self, self.chooserPanel == nil else { return }
+            self.showNextQueuedURL()
+        }
+    }
+    
+    
+    /// Called when the user launches the app again while it's already
+    /// running (Spotlight, Launchpad, Finder). Gives them a way back into
+    /// Preferences even if the menu bar icon is hidden.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        openPreferences()
+        return true
     }
 
     // MARK: - Chooser Panel
@@ -405,24 +443,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
             url: url,
             browsers: installedBrowsers,
             onPreview: { [weak self] in
-                self?.chooserPanel?.close()
+                self?.closeChooser()
                 self?.openPreviewWindow(for: url)
             },
             onOpenIn: { [weak self] browser in
-                self?.chooserPanel?.close()
+                self?.closeChooser()
                 BrowserDetector.open(url: url, in: browser)
             },
             onOpenPreferences: { [weak self] in
-                self?.chooserPanel?.close()
+                self?.closeChooser()
                 self?.openPreferences()
             },
             onDismiss: { [weak self] in
-                self?.chooserPanel?.close()
+                self?.closeChooser()
             }
         )
 
         let hosting = NSHostingController(rootView: contentView)
-
+        hosting.sizingOptions = []
+        
         // Scale panel size relative to the screen it'll appear on, rather than
         // a fixed pixel value — this keeps it proportionally sized whether
         // you're on a 13" laptop or a 32" external display.
@@ -453,6 +492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .transient]
 

@@ -37,7 +37,7 @@ struct PreferencesView: View {
                     .tag(PreferencesTab.browser)
                 
                 ApperancePane(settings: settings)
-                    .tabItem { Label("Apperance", systemImage: "paintpalette") }
+                    .tabItem { Label("Appearance", systemImage: "paintpalette") }
                     .tag(PreferencesTab.apperance)
                 
                 SecurityPane(settings: settings)
@@ -265,10 +265,10 @@ private struct BrowserPane: View {
 
                     RowDivider()
 
-                    ComingSoonRow(
+                    SwitchRow(
                         title: "Reveal Downloads in Finder",
-                        subtitle: "After a file finishes saving from Quick Preview."//,
-                        //isOn: $settings.revealDownloadsInFinder
+                        subtitle: "After a file finishes saving from Quick Preview.",
+                        isOn: $settings.revealDownloadsInFinder
                     )
                     
                     RowDivider()
@@ -277,14 +277,14 @@ private struct BrowserPane: View {
                         title: "App mode",
                         subtitle: settings.appMode.explanation
                     ) {
-                            Picker("", selection: $settings.appMode) {
-                                ForEach(AppMode.allCases) { mode in
-                                    Label(mode.label, systemImage: mode.icon)
-                                        .tag(mode)
-                                }
+                        Picker("", selection: $settings.appMode) {
+                            ForEach(AppMode.allCases) { mode in
+                                Label(mode.label, systemImage: mode.icon)
+                                    .tag(mode)
+                            }
+                        }
                             .labelsHidden()
                             .frame(width: 250)
-                        }
                     }
                     
                     
@@ -428,9 +428,19 @@ private struct SecurityPane: View {
                     RowDivider()
                     
                     SwitchRow(
-                        title: "Unusally deep subdomains",
+                        title: "Unusually deep subdomains",
                         subtitle: "Domains with more than 5 subdomains contained within.",
                         isOn: $settings.flagDeepSubdomains
+                    )
+                    .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
+                    .disabled(!settings.warnAboutSuspiciousLinks)
+                    
+                    RowDivider()
+
+                    SwitchRow(
+                        title: "Unencrypted (http) links",
+                        subtitle: "Flags links that use http:// instead of https://.",
+                        isOn: $settings.flagInsecureHTTP
                     )
                     .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
                     .disabled(!settings.warnAboutSuspiciousLinks)
@@ -609,7 +619,7 @@ private struct AboutPane: View {
                 Text("Update checking powered by Sparkle.")
                 Text("BrowserLink, \(currentYear). This project is licensed under Apache 2.0. The full source code is available on Github.")
                 Text("Visit https://github.com/jacksonvil-s/browserlink for more info.")
-                Text("Thank you for using the app. We apppreciate every support you can give. Please star the repo if you find this app useful.")
+                Text("Thank you for using the app. We appreciate all the support you can give. Please star the repo if you find this app useful.")
             }
             .font(.system(size: 10.5))
             .foregroundStyle(.tertiary)

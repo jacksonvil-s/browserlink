@@ -197,11 +197,11 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Set as default browser")
                     .font(.system(size: 20, weight: .semibold))
-                Text("Click the button below to set Browserlink as the default browser. Or you can do this in preferences later.")
+                Text("Click the button below to set BrowserLink as the default browser. Or you can do this in preferences later.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
-            Button("Set Browserlink as default browser...") {
+            Button("Set BrowserLink as default browser...") {
                 promptSetDefaultBrowser()
             }
             .buttonStyle(.borderedProminent)
@@ -266,6 +266,15 @@ struct OnboardingView: View {
                     subtitle: "We recommend that you keep this option on to protect yourself against malicious links. This process runs entirely on device, but this is not a catch all. Not to be a replacement for a high vigilance while surfing the web.",
                     isOn: $settings.warnAboutSuspiciousLinks
                 )
+                
+                Divider().opacity(0.5).padding(.leading, 14)
+                onboardingToggleRow(
+                    title: "Warn About Unencrypted (http) Links",
+                    subtitle: "Flags links that use http:// instead of https://, which aren't encrypted. Only works while the suspicious link warning above is on.",
+                    isOn: $settings.flagInsecureHTTP
+                )
+                .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
+                .disabled(!settings.warnAboutSuspiciousLinks)
             }
             
         }
@@ -277,7 +286,7 @@ struct OnboardingView: View {
     private var thanksStep: some View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Thank you for chosing this app")
+                Text("Thank you for choosing this app")
                     .font(.system(size: 20, weight: .semibold))
                 Text("If you don't have time, feel free to skip over this.")
                     .font(.system(size: 13))

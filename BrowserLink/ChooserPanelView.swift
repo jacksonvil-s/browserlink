@@ -14,8 +14,6 @@ struct ChooserPanelView: View {
     @State private var hasAppeared = false
     @State private var hasConfirmedDanger = false
     @StateObject private var faviconLoader = FaviconLoader()
-    @State private var showBrowserMenu = false
-    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var settings = AppSettings.shared
     
     private var safetyResult: URLSafetyResult {
@@ -129,11 +127,17 @@ struct ChooserPanelView: View {
             KeyCatcher(
                 onEscape: onDismiss,
                 onSelectIndex: { index in
+                    // Block shortcuts while the warning is still showing
+                    if safetyResult.isSuspicious && !hasConfirmedDanger { return }
                     if index >= 0 && index < browsers.count {
                         onOpenIn(browsers[index])
                     }
                 },
-                onPreview: onPreview
+                onPreview: {
+                    // Same check for the Preview shortcut
+                    if safetyResult.isSuspicious && !hasConfirmedDanger { return }
+                    onPreview()
+                }
             )
         )
     }

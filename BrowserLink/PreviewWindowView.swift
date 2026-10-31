@@ -11,8 +11,12 @@ struct PreviewWindowView: View {
     let onClose: () -> Void
 
     @StateObject private var viewModel = PreviewViewModel()
-    @State private var showBrowserMenu = false
     @ObservedObject private var settings = AppSettings.shared
+    
+    /// True only when the page being shown is loaded over https.
+    private var isSecureConnection: Bool {
+        (viewModel.currentURL ?? url).scheme?.lowercased() == "https"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -114,9 +118,9 @@ struct PreviewWindowView: View {
             }
 
             HStack(spacing: 6) {
-                Image(systemName: "lock.fill")
+                Image(systemName: isSecureConnection ? "lock.fill" : "lock.open.fill")
                     .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isSecureConnection ? Color.secondary : Color.red)
                 Text(viewModel.currentURL?.host ?? url.host ?? "")
                     .font(.system(size: 11.5, weight: .medium))
                     .lineLimit(1)
@@ -240,7 +244,7 @@ struct PreviewLoadError: Identifiable {
         case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed:
             return PreviewLoadError(
                 title: "Site Can't Be Found",
-                message: "This domain doesn't seem to exist, or there was a problem resolving it.",
+                message: "This domain doesn't seem to exist, or there was a problem resolving it. (DNS error)",
                 systemImage: "questionmark.circle"
             )
         case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted:
@@ -270,7 +274,13 @@ struct PreviewLoadError: Identifiable {
         case 403:
             return PreviewLoadError(
                 title: "Access Denied (403)",
-                message: "\(host) is refusing to show this page — you may need to log in or lack permission.",
+                message: "\(host) is refusing to show this page — you lack permission.",
+                systemImage: "lock.fill"
+            )
+        case 401:
+            return PreviewLoadError(
+                title: "Authentication needed (401)",
+                message: "\(host) requires authentication from your end. You might need to sign in",
                 systemImage: "lock.fill"
             )
         case 500, 502, 503, 504:
@@ -313,6 +323,7 @@ struct WebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         viewModel.webView = webView
 
@@ -326,11 +337,37 @@ struct WebView: NSViewRepresentable {
         Coordinator(viewModel: viewModel)
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKDownloadDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKDownloadDelegate, WKUIDelegate {
         let viewModel: PreviewViewModel
+        var lastDownloadDestination: URL?
 
         init(viewModel: PreviewViewModel) {
             self.viewModel = viewModel
+        }
+        
+        /// Called when a page tries to open a link in a new tab/window
+        /// (target="_blank" or window.open). Preview has no tabs, so we
+        /// load it in the same window instead.
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if navigationAction.targetFrame == nil {
+                webView.load(navigationAction.request)
+            }
+            return nil
+        }
+        
+        /// Errors that are expected when a page turns into a download.
+        /// They aren't real failures, so we don't show an error screen.
+        private func isIgnorableError(_ error: Error) -> Bool {
+            let nsError = error as NSError
+            if nsError.code == NSURLErrorCancelled { return true }
+            // 102 = "Frame load interrupted", sent when a load becomes a download
+            if nsError.domain == "WebKitErrorDomain" && nsError.code == 102 { return true }
+            return false
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -347,7 +384,7 @@ struct WebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             viewModel.isLoading = false
-            if (error as NSError).code != NSURLErrorCancelled {
+            if !isIgnorableError(error) {
                 viewModel.loadError = .transport(error)
             }
         }
@@ -366,7 +403,7 @@ struct WebView: NSViewRepresentable {
             // into a download (see decidePolicyFor below) — that's expected
             // behavior, not a real failure, and shouldn't show an error screen.
             viewModel.isLoading = false
-            if (error as NSError).code != NSURLErrorCancelled {
+            if !isIgnorableError(error) {
                 viewModel.loadError = .transport(error)
             }
         }
@@ -411,6 +448,12 @@ struct WebView: NSViewRepresentable {
         ) {
             download.delegate = self
         }
+        
+        func downloadDidFinish(_ download: WKDownload) {
+            guard AppSettings.shared.revealDownloadsInFinder else { return }
+            guard let destination = lastDownloadDestination else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([destination])
+        }
 
         func download(
             _ download: WKDownload,
@@ -434,6 +477,7 @@ struct WebView: NSViewRepresentable {
                             in: .userDomainMask
                         ).first
                         let destination = downloadsDir?.appendingPathComponent(suggestedFilename)
+                        self.lastDownloadDestination = destination
                         completionHandler(destination)
                     }
                 )

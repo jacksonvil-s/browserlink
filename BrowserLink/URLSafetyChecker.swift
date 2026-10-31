@@ -33,7 +33,7 @@ enum URLSafetyChecker {
     /// treated as suspicious when COMBINED with a brand name in the same host.
     private static let suspiciousTLDs = [
         ".tk", ".ml", ".ga", ".cf", ".gq", ".xyz", ".top", ".club", ".work",
-        ".click", ".link", ".zip", ".review"
+        ".click", ".link", ".zip", ".review", ".online"
     ]
 
     static func check(_ url: URL) -> URLSafetyResult {
@@ -69,7 +69,14 @@ enum URLSafetyChecker {
             }
             
             // 4. Brand name + suspicious TLD or excessive subdomain combination.
-            let brandMatch = commonlyImpersonatedBrands.first { host.contains($0) }
+            
+            // Split the host into words (at dots and dashes) and check whether
+            // any word STARTS with a brand name. This catches "paypal-login.xyz"
+            // and "paypalsecure.xyz" but not "airsoft.xyz" or "pineapple.xyz".
+            let words = host.split(whereSeparator: { $0 == "." || $0 == "-" }).map(String.init)
+            let brandMatch = commonlyImpersonatedBrands.first { brand in
+                words.contains { $0.hasPrefix(brand) }
+            }
             if let brand = brandMatch {
                 let isBrandsOwnDomain = host == "\(brand).com" || host.hasSuffix(".\(brand).com")
                 let hasSuspiciousTLD = suspiciousTLDs.contains { host.hasSuffix($0) }
@@ -96,6 +103,14 @@ enum URLSafetyChecker {
                     reasons.append("This domain uses punycode encoding, which can be used to visually disguise the real destination. (Security warning level 2, warning)")
                 }
             }
+            
+            // 7. Unencrypted http:// links (optional, off by default).
+            if AppSettings.shared.flagInsecureHTTP {
+                if url.scheme?.lowercased() == "http" {
+                    reasons.append("This link uses plain \"http://\" instead of \"https://\", so anything you send or receive on this page is not encrypted and could be read by others on the network. (Security warning level 3, advisory)")
+                }
+            }
+            
             return URLSafetyResult(isSuspicious: !reasons.isEmpty, reasons: reasons)
         }
     }

@@ -66,6 +66,11 @@ final class AppSettings: ObservableObject {
         didSet { persist(newValue: flagDeepSubdomains, oldValue: oldValue, key: Keys.flagDeepSubdomains) }
     }
     
+    /// Warns when a link uses plain http:// instead of https://.
+    @Published var flagInsecureHTTP: Bool {
+        didSet { persist(newValue: flagInsecureHTTP, oldValue: oldValue, key: Keys.flagInsecureHTTP) }
+    }
+    
     /// App mode (Preview window, browser chooser, both)
     @Published var appMode: AppMode {
         didSet { persist(newValue: appMode.rawValue, oldValue: oldValue.rawValue, key: Keys.appMode) }
@@ -104,7 +109,7 @@ final class AppSettings: ObservableObject {
         didSet { persist(newValue: rememberPerSiteChoices, oldValue: oldValue, key: Keys.rememberPerSiteChoices) }
     }
 
-    /// Future: reveal a file in Finder right after PreviewWindowView
+    /// Reveal a file in Finder right after PreviewWindowView
     /// finishes saving it to Downloads.
     @Published var revealDownloadsInFinder: Bool {
         didSet { persist(newValue: revealDownloadsInFinder, oldValue: oldValue, key: Keys.revealDownloadsInFinder) }
@@ -136,6 +141,7 @@ final class AppSettings: ObservableObject {
         static let flagMixedScriptDomains = "flagMixedScriptDomains"
         static let flagPunycodeDomains = "flagPunycodeDomains"
         static let flagDeepSubdomains = "flagDeepSubdomains"
+        static let flagInsecureHTTP = "flagInsecureHTTP"
         static let appMode = "appMode"
         static let shareAnonymousSystemInfo = "shareAnonymousSystemInfo"
         static let updateChannel = "updateChannel"
@@ -170,6 +176,7 @@ final class AppSettings: ObservableObject {
         flagMixedScriptDomains = defaults.object(forKey: Keys.flagMixedScriptDomains) as? Bool ?? true
         flagPunycodeDomains = defaults.object(forKey: Keys.flagPunycodeDomains) as? Bool ?? true
         flagDeepSubdomains = defaults.object(forKey: Keys.flagDeepSubdomains) as? Bool ?? true
+        flagInsecureHTTP = defaults.object(forKey: Keys.flagInsecureHTTP) as? Bool ?? true
         appMode = AppMode(rawValue: defaults.string(forKey: Keys.appMode) ?? "") ?? .both
         shareAnonymousSystemInfo = defaults.bool(forKey: Keys.shareAnonymousSystemInfo)
         updateChannel = UpdateChannel(rawValue: defaults.string(forKey: Keys.updateChannel) ?? "") ?? .stable
@@ -247,7 +254,7 @@ enum AppMode: String, CaseIterable, Identifiable {
         case .chooser:
             return "Only the browser chooser is available. You can preview the link and optionally enable security protections."
         case .both:
-            return "Both the browser chooser and priate preview will appear. You can choose between the 2 as you like."
+            return "Both the browser chooser and private preview will appear. You can choose between the two as you like."
         }
     }
     
