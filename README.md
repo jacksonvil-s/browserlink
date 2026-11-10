@@ -16,6 +16,7 @@ Coming soon.
 **Key**
 | Symbol | Meaning |
 | ----- | ----- |
+| 🟣 | Additional features available |
 | ✅ | Supported |
 | 🟡 | Partial support |
 | :x: | Not supported |
@@ -28,15 +29,16 @@ If a version is supported (bug or security), then open an issue (or security rep
 
 | Version | Technical and bugs support | Security support | Sparkle included |
 | ------- | ------------------ | ------------------- | ------------------- |
-| 1.3.1 (latest) | ✅ | ✅ | ✅
+| 1.4.0 (latest) |✅ | ✅ | 🟣
+| 1.3.1 | ✅ | ✅ | ✅
 | 1.3.0 | ✅ | ✅ | ✅
 | 1.2.0 | ✅ | ✅ | ✅
-| 1.1.5 | ✅ | ✅ | ✅
+| 1.1.5 | :x: | ✅ | ✅
 | 1.1.4 | :x: | ✅ | ✅
 | 1.1.3 | :x: | ✅ | ✅
-| 1.1.2 | :x: | ✅ | 🟡
-| 1.1.1 | :x: | ✅ | 🟡
-| 1.1.0 | :x: | ✅ | 🟡
+| 1.1.2 | :x: | :x: | 🟡
+| 1.1.1 | :x: | :x: | 🟡
+| 1.1.0 | :x: | :x: | 🟡
 | 1.0.0 | :x: | :x: | :x:
 
 ## Prerelease versions
