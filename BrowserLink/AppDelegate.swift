@@ -6,7 +6,7 @@ import Combine
 /// The real brain of the app. Because this is a background agent (LSUIElement = true,
 /// set in Info.plist), there's no Dock icon and no default window — everything is
 /// driven from here.
-final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate, SPUStandardUserDriverDelegate {
     
     /// The persistent menu bar item — our only always-visible presence.
     private var statusItem: NSStatusItem?
@@ -26,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
         updaterDelegate: self,
-        userDriverDelegate: nil
+        userDriverDelegate: self
     )
 
     /// The Preferences window. Built once, shown/hidden as needed rather
@@ -46,6 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
     /// Holds the Combine subscriptions that keep the status bar menu in
     /// sync with AppSettings — cancelled automatically on dealloc.
     private var cancellables = Set<AnyCancellable>()
+    
+    /// True while Sparkle has found an update the user hasn't looked at yet.
+    private var updateIsAvailable = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupGlobalShortcut()
@@ -248,7 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
         menu.addItem(NSMenuItem.separator())
 
         let updateItem = NSMenuItem(
-            title: "Check for Updates…",
+            title: updateIsAvailable ? "Update Available: Install…" : "Check for Updates…",
             action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
             keyEquivalent: ""
         )
@@ -384,12 +387,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
     // "open in default browser," etc). This fires via the Info.plist CFBundleURLTypes
     // registration — see Info.plist for the http/https scheme declarations.
 
-    /// Links waiting for their turn. Links can arrive one call at a time,
-    /// so every new link joins the end of this line.
-    private var queuedURLs: [URL] = []
+    /// Links waiting for their turn, with built-in protection against spam.
+    private let linkQueue = LinkQueue()
+
+    /// The link the chooser is showing right now (nil when none).
+    private var currentChooserURL: URL?
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        queuedURLs.append(contentsOf: urls)
+        for url in urls {
+            linkQueue.add(url, currentlyShowing: currentChooserURL)
+        }
 
         // Only start right away if no chooser is already on screen.
         if chooserPanel == nil {
@@ -397,26 +404,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
         }
     }
 
-    /// Shows the chooser for the next waiting link, if there is one.
     private func showNextQueuedURL() {
-        guard !queuedURLs.isEmpty else { return }
-        presentChooser(for: queuedURLs.removeFirst())
+        guard let next = linkQueue.next() else { return }
+        presentChooser(for: next)
     }
 
     /// Closes the chooser, then shows the next waiting link (if any).
     private func closeChooser() {
         chooserPanel?.close()
         chooserPanel = nil
+        currentChooserURL = nil
 
-        guard !queuedURLs.isEmpty else { return }
-
-        // Wait a moment so the old window finishes closing (and any Preview
-        // window finishes opening) before the next chooser appears.
+        guard !linkQueue.waiting.isEmpty else {
+            linkQueue.finishBatch()
+            return
+        }
+        
+        // Wait a moment so the old window finishes closing first.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self = self, self.chooserPanel == nil else { return }
             self.showNextQueuedURL()
         }
     }
+
+    /// "Dismiss all": closes the chooser and throws away every waiting link.
+    private func dismissAllLinks() {
+        linkQueue.clear()
+        closeChooser()
+    }
+    
+    
     
     
     /// Called when the user launches the app again while it's already
@@ -433,11 +450,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
         // If a chooser is already open (rapid double-click, etc.), close it first
         // rather than stacking panels.
         chooserPanel?.close()
+        currentChooserURL = url
 
-        let installedBrowsers = BrowserDetector.ordered(
-            BrowserDetector.installedBrowsers(),
-            by: AppSettings.shared.browserOrder
-        )
+        let installedBrowsers = BrowserDetector.visibleBrowsers()
         
         let contentView = ChooserPanelView(
             url: url,
@@ -456,6 +471,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
             },
             onDismiss: { [weak self] in
                 self?.closeChooser()
+            },
+            linkQueue: linkQueue,
+            onDismissAll: { [weak self] in
+                self?.dismissAllLinks()
             }
         )
 
@@ -504,8 +523,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
         }
 
         chooserPanel = panel
+
+        // Start slightly lower and invisible, then rise into place while
+        // fading in. Only the window's position moves, never its size,
+        // so SwiftUI's layout is never disturbed.
+        let finalFrame = panel.frame
+        var startFrame = finalFrame
+        startFrame.origin.y -= 28
+        panel.setFrame(startFrame, display: false)
+        panel.alphaValue = 0
+
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.35
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 1
+            panel.animator().setFrame(finalFrame, display: true)
+        }
     }
 
     // MARK: - Preview Window
@@ -527,8 +563,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
         let hosting = NSHostingController(rootView: contentView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let windowWidth = min(max(screenFrame.width * 0.68, 900), 1600)
-        let windowHeight = min(max(screenFrame.height * 0.78, 640), 1100)
+        let windowWidth = min(max(screenFrame.width * 0.55, 800), 1400)
+        let windowHeight = min(max(screenFrame.height * 0.68, 560), 950)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight),
@@ -575,5 +611,111 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
             }
         }
     
+    // MARK: - SPUStandardUserDriverDelegate (gentle update reminders)
+
+    var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    /// Sparkle asks: "should I pop up the update alert myself?"
+    /// Yes if the user is already using the app, or if the menu bar icon
+    /// is hidden (otherwise they'd never find out about the update).
+    func standardUserDriverShouldHandleShowingScheduledUpdate(
+        _ update: SUAppcastItem,
+        andInImmediateFocus immediateFocus: Bool
+    ) -> Bool {
+        return immediateFocus || AppSettings.shared.hideMenuBarIcon
+    }
+
+    func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool,
+        forUpdate update: SUAppcastItem,
+        state: SPUUserUpdateState
+    ) {
+        if handleShowingUpdate {
+            // Sparkle is showing its own alert: bring it to the front.
+            NSApp.activate(ignoringOtherApps: true)
+        } else {
+            // Gentle path: just mark the menu bar icon and menu.
+            setUpdateAvailable(true)
+        }
+    }
+
+    func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
+        setUpdateAvailable(false)
+    }
+
+    func standardUserDriverWillFinishUpdateSession() {
+        setUpdateAvailable(false)
+    }
+
+    private func setUpdateAvailable(_ available: Bool) {
+        updateIsAvailable = available
+
+        if let button = statusItem?.button {
+            // Always keep the normal logo...
+            button.image = NSImage(
+                systemSymbolName: "link.circle.fill",
+                accessibilityDescription: available ? "BrowserLink: update available" : "BrowserLink"
+            )
+            // ...and put a small arrow to its right while an update waits.
+            button.imagePosition = .imageLeading
+            button.title = available ? "↓" : ""
+            button.font = .systemFont(ofSize: 13, weight: .bold)
+        }
+
+        // The icon is square normally, but needs more room for logo + arrow.
+        statusItem?.length = available ? NSStatusItem.variableLength : NSStatusItem.squareLength
+
+        rebuildMenu()
+    }
+    
 }
 
+/// Links waiting for their turn, with protection against apps that spam links.
+final class LinkQueue: ObservableObject {
+    static let maxWaiting = 5
+    static let repeatWindow: TimeInterval = 2
+    static let muteAfterDismissAll: TimeInterval = 5
+
+    @Published private(set) var waiting: [URL] = []
+    @Published private(set) var blockedCount = 0
+
+    private var lastSeen: [URL: Date] = [:]
+    private var mutedUntil = Date.distantPast
+    
+    /// Called when the line has fully drained and the last chooser closed.
+    func finishBatch() {
+        blockedCount = 0
+    }
+
+    func add(_ url: URL, currentlyShowing: URL?) {
+        let now = Date()
+        let previous = lastSeen[url]
+        lastSeen[url] = now   // sliding window: stays muted while it keeps coming
+        lastSeen = lastSeen.filter { now.timeIntervalSince($0.value) < 60 }
+
+        if now < mutedUntil { return }
+        if url == currentlyShowing || waiting.contains(url) { return }
+        if let previous, now.timeIntervalSince(previous) < Self.repeatWindow { return }
+
+        if waiting.count >= Self.maxWaiting {
+            blockedCount += 1
+            return
+        }
+        waiting.append(url)
+    }
+
+    func next() -> URL? {
+        if waiting.isEmpty {
+            blockedCount = 0
+            return nil
+        }
+        return waiting.removeFirst()
+    }
+
+    /// "Dismiss all": empties the line and ignores new links for a few seconds.
+    func clear() {
+        waiting.removeAll()
+        blockedCount = 0
+        mutedUntil = Date().addingTimeInterval(Self.muteAfterDismissAll)
+    }
+}

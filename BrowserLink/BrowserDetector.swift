@@ -26,9 +26,11 @@ enum BrowserDetector {
         ("com.vivaldi.Vivaldi", "Vivaldi"),
         ("net.waterfox.waterfox", "Waterfox"),
         ("app.zen-browser.zen", "Zen Browser"),
-        ("app.floorp.Floorp", "Floorp")
+        ("app.floorp.Floorp", "Floorp"),
+        ("com.duckduckgo.macos.vpn", "DuckDuckGo Browser"),
+        ("company.thebrowser.dia", "Dia")
     ]
-
+    
     /// Scans for which of the known browsers are actually installed on this Mac,
     /// pulling real icons and paths via LaunchServices. Returns only what's present —
     /// if someone doesn't have Chrome installed, it simply won't show up as an option.
@@ -74,5 +76,11 @@ extension BrowserDetector {
         result.append(contentsOf: remaining)
 
         return result
+    }
+    
+    /// Installed browsers in the user's chosen order, minus any they switched off.
+    static func visibleBrowsers() -> [InstalledBrowser] {
+        ordered(installedBrowsers(), by: AppSettings.shared.browserOrder)
+            .filter { !AppSettings.shared.hiddenBrowsers.contains($0.id) }
     }
 }

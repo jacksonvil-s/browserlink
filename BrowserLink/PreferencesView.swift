@@ -310,6 +310,31 @@ private struct ApperancePane: View {
     }
     
     @State private var browsers: [InstalledBrowser] = []
+    private let browserRowHeight: CGFloat = 40
+    
+    private func isVisible(_ browser: InstalledBrowser) -> Bool {
+        !settings.hiddenBrowsers.contains(browser.id)
+    }
+
+    private func visibleBinding(for browser: InstalledBrowser) -> Binding<Bool> {
+        Binding(
+            get: { isVisible(browser) },
+            set: { show in
+                if show {
+                    settings.hiddenBrowsers.removeAll { $0 == browser.id }
+                } else if !settings.hiddenBrowsers.contains(browser.id) {
+                    settings.hiddenBrowsers.append(browser.id)
+                }
+            }
+        )
+    }
+
+    /// Prevents switching off every browser: the last visible one stays on.
+    private func isLastVisible(_ browser: InstalledBrowser) -> Bool {
+        isVisible(browser) && browsers.filter { isVisible($0) }.count <= 1
+    }
+    
+    
     
     var body: some View {
         ScrollView {
@@ -338,17 +363,33 @@ private struct ApperancePane: View {
                 .padding(14)
                 
                 SettingsCard(title: "Browser display order") {
+                    Text("Drag a browser up or down to change its order. Use the switch to hide it from the chooser.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 10)
+                        .padding(.bottom, 4)
+
                     List {
                         ForEach(browsers) { browser in
                             HStack(spacing: 10) {
+                                Image(systemName: "line.3.horizontal")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.tertiary)
                                 Image(nsImage: browser.icon)
                                     .resizable()
                                     .frame(width: 20, height: 20)
                                 Text(browser.name)
                                     .font(.system(size: 13))
                                 Spacer()
+                                Toggle("", isOn: visibleBinding(for: browser))
+                                    .toggleStyle(.switch)
+                                    .labelsHidden()
+                                    .disabled(isLastVisible(browser))
                             }
-                            .padding(.vertical, 4)
+                            .frame(height: browserRowHeight)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
                         }
                         .onMove { indices, newOffset in
                             browsers.move(fromOffsets: indices, toOffset: newOffset)
@@ -357,7 +398,9 @@ private struct ApperancePane: View {
                     }
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
-                    .frame(height: CGFloat(browsers.count) * 28)  // tune 28 to your actual row height
+                    .scrollDisabled(true)
+                    .environment(\.defaultMinListRowHeight, browserRowHeight)
+                    .frame(height: CGFloat(browsers.count) * browserRowHeight + 8)
                     .onAppear {
                         browsers = BrowserDetector.ordered(
                             BrowserDetector.installedBrowsers(),
@@ -374,6 +417,17 @@ private struct ApperancePane: View {
                     }
                     .buttonStyle(.borderedProminent)
                 }
+                .opacity(settings.appMode == .preview ? 0.4 : 1)
+                .disabled(settings.appMode == .preview)
+
+                Text(
+                    settings.appMode == .preview
+                    ? "The browser list is switched off because App mode is set to \"\(AppMode.preview.label)\". You can change this in the Browser tab."
+                    : "To hide every browser from the chooser, set App mode to \"\(AppMode.preview.label)\" in the Browser tab. Otherwise, at least one browser always stays visible."
+                )
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 4)
                 
                 Spacer()
                 
@@ -381,6 +435,44 @@ private struct ApperancePane: View {
             }
             .padding(24)
         }
+    }
+}
+
+
+
+
+
+
+/// Dims and disables a row when its master switch is off.
+private extension View {
+    func dimmed(unless enabled: Bool) -> some View {
+        self.opacity(enabled ? 1 : 0.4)
+            .disabled(!enabled)
+    }
+}
+
+/// Coloured heading for a group of security checks.
+private struct SeverityHeader: View {
+    let level: SafetyLevel
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Image(systemName: level.symbolName)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(level.color)
+                Text(title.uppercased())
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Text(detail)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 4)
     }
 }
 
@@ -392,59 +484,127 @@ private struct SecurityPane: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+
                 SettingsCard(title: "Link Warnings") {
                     SwitchRow(
                         title: "Warn About Suspicious Links",
-                        subtitle: "Shows a warning banner before opening a link that trips any check below.",
+                        subtitle: "Shows a warning when a link trips any check below. Serious and warning-level ones ask you to confirm first.",
                         isOn: $settings.warnAboutSuspiciousLinks
                     )
                 }
 
-                SettingsCard(title: "Checks") {
-                    SwitchRow(title: "Raw IP Address Links",
-                    isOn: $settings.flagRawIPLinks
+                // MARK: Serious
+                VStack(alignment: .leading, spacing: 6) {
+                    SeverityHeader(
+                        level: .serious,
+                        title: "Serious",
+                        detail: "Almost certainly an attempt to trick or harm you. Links using javascript:, data: or file: are always flagged."
                     )
-                        .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
-                        .disabled(!settings.warnAboutSuspiciousLinks)
+                    SettingsCard {
+                        SwitchRow(
+                            title: "Fake Brand Look-alikes",
+                            subtitle: "Flags domains that imitate well-known brands, like paypal-login.xyz.",
+                            isOn: $settings.flagBrandLookalikes
+                        )
+                        .dimmed(unless: settings.warnAboutSuspiciousLinks)
 
-                    RowDivider()
+                        RowDivider()
 
-                    SwitchRow(
-                        title: "Mixed-Script (Homograph) Domains",
-                        subtitle: "Flags domains mixing alphabets, e.g. Latin + Cyrillic look-alikes.",
-                        isOn: $settings.flagMixedScriptDomains
+                        SwitchRow(
+                            title: "Fake \"@\" Usernames",
+                            subtitle: "Flags links like paypal.com@evil-site.xyz, where the real destination is hidden after the @.",
+                            isOn: $settings.flagAtSignTrick
+                        )
+                        .dimmed(unless: settings.warnAboutSuspiciousLinks)
+
+                        RowDivider()
+
+                        SwitchRow(
+                            title: "Pause Before Confirming",
+                            subtitle: "Waits 3 seconds before you can click \"I understand the risk\" on a serious warning, to give you time to reconsider.",
+                            isOn: $settings.delaySevereConfirm
+                        )
+                        .dimmed(unless: settings.warnAboutSuspiciousLinks)
+                    }
+                }
+
+                // MARK: Warning
+                VStack(alignment: .leading, spacing: 6) {
+                    SeverityHeader(
+                        level: .warning,
+                        title: "Warning",
+                        detail: "Suspicious, though sometimes innocent. Asks you to confirm."
                     )
-                    .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
-                    .disabled(!settings.warnAboutSuspiciousLinks)
+                    SettingsCard {
+                        SwitchRow(
+                            title: "Raw IP Address Links",
+                            subtitle: "Links that use numbers like 192.168.0.1 instead of a website name.",
+                            isOn: $settings.flagRawIPLinks
+                        )
+                        .dimmed(unless: settings.warnAboutSuspiciousLinks)
 
-                    RowDivider()
+                        RowDivider()
 
-                    SwitchRow(title: "Punycode Domains",
-                    isOn: $settings.flagPunycodeDomains
-                    )
-                        .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
-                        .disabled(!settings.warnAboutSuspiciousLinks)
-                    
-                    RowDivider()
-                    
-                    SwitchRow(
-                        title: "Unusually deep subdomains",
-                        subtitle: "Domains with more than 5 subdomains contained within.",
-                        isOn: $settings.flagDeepSubdomains
-                    )
-                    .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
-                    .disabled(!settings.warnAboutSuspiciousLinks)
-                    
-                    RowDivider()
+                        SwitchRow(
+                            title: "Mixed-Script (Homograph) Domains",
+                            subtitle: "Flags domains mixing alphabets, e.g. Latin + Cyrillic look-alikes.",
+                            isOn: $settings.flagMixedScriptDomains
+                        )
+                        .dimmed(unless: settings.warnAboutSuspiciousLinks)
 
-                    SwitchRow(
-                        title: "Unencrypted (http) links",
-                        subtitle: "Flags links that use http:// instead of https://.",
-                        isOn: $settings.flagInsecureHTTP
+                        RowDivider()
+
+                        SwitchRow(
+                            title: "Punycode Domains",
+                            subtitle: "Domains starting with xn--, which can disguise look-alike characters.",
+                            isOn: $settings.flagPunycodeDomains
+                        )
+                        .dimmed(unless: settings.warnAboutSuspiciousLinks)
+
+                        RowDivider()
+
+                        SwitchRow(
+                            title: "Program & Installer Downloads",
+                            subtitle: "Flags links that end in .exe, .dmg, .pkg and similar.",
+                            isOn: $settings.flagDownloadLinks
+                        )
+                        .dimmed(unless: settings.warnAboutSuspiciousLinks)
+                    }
+                }
+
+                // MARK: Advisory
+                VStack(alignment: .leading, spacing: 6) {
+                    SeverityHeader(
+                        level: .advisory,
+                        title: "Advisory",
+                        detail: "Worth knowing about. Shown as a small notice and never blocks the buttons."
                     )
-                    .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
-                    .disabled(!settings.warnAboutSuspiciousLinks)
-                    
+                    SettingsCard {
+                        SwitchRow(
+                            title: "Unusually Deep Subdomains",
+                            subtitle: "Domains with more than 5 subdomains contained within.",
+                            isOn: $settings.flagDeepSubdomains
+                        )
+                        .dimmed(unless: settings.warnAboutSuspiciousLinks)
+
+                        RowDivider()
+
+                        SwitchRow(
+                            title: "Unencrypted (http) Links",
+                            subtitle: "Flags links that use http:// instead of https://. Some older sites still use http, so you may switch this off.",
+                            isOn: $settings.flagInsecureHTTP
+                        )
+                        .dimmed(unless: settings.warnAboutSuspiciousLinks)
+
+                        RowDivider()
+
+                        SwitchRow(
+                            title: "Shortened Links",
+                            subtitle: "Shows a gentle notice for links from services like bit.ly that hide where they lead.",
+                            isOn: $settings.flagURLShorteners
+                        )
+                        .dimmed(unless: settings.warnAboutSuspiciousLinks)
+                    }
                 }
 
                 Spacer()

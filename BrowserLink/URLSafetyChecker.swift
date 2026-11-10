@@ -1,11 +1,45 @@
 import Foundation
 
+/// How serious a safety finding is.
+enum SafetyLevel: Int, Comparable {
+    case serious = 1    // red stop icon: can run code or harm the system
+    case warning = 2    // yellow warning icon: likely deception
+    case advisory = 3   // blue info icon: worth knowing, not alarming
+
+    static func < (lhs: SafetyLevel, rhs: SafetyLevel) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+
+    var symbolName: String {
+        switch self {
+        case .serious: return "xmark.octagon.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .advisory: return "info.circle.fill"
+        }
+    }
+}
+
+/// One finding: how serious it is, and what to tell the user.
+struct SafetyReason: Identifiable, Hashable {
+    let level: SafetyLevel
+    let message: String
+    var id: String { "\(level.rawValue)-\(message)" }
+}
+
 /// Result of a heuristic safety check on a URL.
 struct URLSafetyResult {
-    let isSuspicious: Bool
-    let reasons: [String]
+    let reasons: [SafetyReason]
 
-    static let safe = URLSafetyResult(isSuspicious: false, reasons: [])
+    static let safe = URLSafetyResult(reasons: [])
+
+    /// Level 1 and 2 findings: these lock the options until the user confirms.
+    var blockingReasons: [SafetyReason] { reasons.filter { $0.level != .advisory } }
+
+    /// Level 3 findings: a gentle notice that never blocks anything.
+    var advisoryReasons: [SafetyReason] { reasons.filter { $0.level == .advisory } }
+
+    var requiresConfirmation: Bool { !blockingReasons.isEmpty }
+    var hasSeriousReason: Bool { reasons.contains { $0.level == .serious } }
 }
 
 /// Performs local, instant heuristic analysis on URLs to flag common signs
@@ -18,9 +52,6 @@ struct URLSafetyResult {
 /// a first line of defense, not a guarantee.
 enum URLSafetyChecker {
 
-    /// A small set of high-value brand names commonly impersonated in
-    /// phishing URLs. Not exhaustive — just enough to catch the most common
-    /// lookalike-domain pattern (brand name + suspicious extra words/TLD).
     private static let commonlyImpersonatedBrands = [
         "paypal", "apple", "microsoft", "google", "amazon", "netflix",
         "facebook", "instagram", "bankofamerica", "wellsfargo", "chase",
@@ -28,100 +59,144 @@ enum URLSafetyChecker {
         "fedex", "dhl", "icloud", "outlook", "office365"
     ]
 
-    /// TLDs that are disproportionately used for throwaway phishing domains.
-    /// Having one of these is not proof of anything by itself — it's only
-    /// treated as suspicious when COMBINED with a brand name in the same host.
     private static let suspiciousTLDs = [
         ".tk", ".ml", ".ga", ".cf", ".gq", ".xyz", ".top", ".club", ".work",
         ".click", ".link", ".zip", ".review", ".online"
     ]
+    
+    /// File types that install or run a program. Downloading one is not
+    /// necessarily bad, but it's worth a pause.
+    private static let downloadExtensions: Set<String> = [
+        "exe", "msi", "scr", "bat", "cmd", "ps1", "vbs",
+        "dmg", "pkg", "command", "sh", "jar", "apk"
+    ]
+
+    /// Link shorteners hide the real destination until you open them.
+    private static let urlShorteners = [
+        "bit.ly", "t.co", "tinyurl.com", "goo.gl", "ow.ly", "is.gd",
+        "buff.ly", "rebrand.ly", "cutt.ly", "t.ly", "shorturl.at",
+        "rb.gy", "lnkd.in", "tiny.cc", "bl.ink"
+    ]
 
     static func check(_ url: URL) -> URLSafetyResult {
-        if !AppSettings.shared.warnAboutSuspiciousLinks {
-            // Feature disabled — treat as safe.
-            return .safe
-        } else {
-            var reasons: [String] = []
-            
-            guard let host = url.host?.lowercased() else {
-                return URLSafetyResult(isSuspicious: false, reasons: [])
-            }
-            
-            // 1. Raw IP address instead of a domain name.
-            if AppSettings.shared.flagRawIPLinks {
-                if isIPAddress(host) {
-                    reasons.append("This link points directly to a raw IP address instead of a normal domain name — legitimate sites almost never do this. (Security warning level 2, warning)")
-                }
-            }
-            
-            // 2. Dangerous URI schemes that can execute code or access local data.
-            if let scheme = url.scheme?.lowercased(), ["javascript", "data", "file"].contains(scheme) {
-                reasons.append("This link uses the \"\(scheme):\" scheme, which can run code or access local files directly. (Security warning level 1, serious)")
-            }
-            
-            // 3. Homograph / mixed-script detection — catches lookalike domains
-            // using non-Latin characters that visually resemble Latin ones
-            // (e.g. Cyrillic "а" instead of Latin "a").
-            if AppSettings.shared.flagMixedScriptDomains {
-                if containsMixedScripts(host) {
-                    reasons.append("This domain mixes different alphabets/scripts, a common trick to visually impersonate a trusted site. (Security warning level 2, warning)")
-                }
-            }
-            
-            // 4. Brand name + suspicious TLD or excessive subdomain combination.
-            
-            // Split the host into words (at dots and dashes) and check whether
-            // any word STARTS with a brand name. This catches "paypal-login.xyz"
-            // and "paypalsecure.xyz" but not "airsoft.xyz" or "pineapple.xyz".
-            let words = host.split(whereSeparator: { $0 == "." || $0 == "-" }).map(String.init)
-            let brandMatch = commonlyImpersonatedBrands.first { brand in
-                words.contains { $0.hasPrefix(brand) }
-            }
-            if let brand = brandMatch {
-                let isBrandsOwnDomain = host == "\(brand).com" || host.hasSuffix(".\(brand).com")
-                let hasSuspiciousTLD = suspiciousTLDs.contains { host.hasSuffix($0) }
-                let subdomainCount = host.components(separatedBy: ".").count
-                
-                if !isBrandsOwnDomain && (hasSuspiciousTLD || subdomainCount > 3) {
-                    reasons.append("This domain includes \"\(brand)\" but isn't \(brand)'s actual domain, which is a common phishing pattern. (Security warning level 2, warning)")
-                }
-            }
-            
-            // 5. Excessive subdomain nesting, a classic obfuscation tactic
-            // (e.g. paypal.com.verify-account.suspicious-site.xyz).
-            if AppSettings.shared.flagDeepSubdomains {
-                let labelCount = host.components(separatedBy: ".").count
-                if labelCount > 5 {
-                    reasons.append("This domain has an unusually deep subdomain structure, which is sometimes used to disguise the real destination. (Security warning level 3, advisory)")
-                }
-            }
-            
-            // 6. Punycode domains (xn--) — often used for homograph attacks,
-            // though also legitimately used for real internationalized domains.
-            if AppSettings.shared.flagPunycodeDomains {
-                if host.contains("xn--") {
-                    reasons.append("This domain uses punycode encoding, which can be used to visually disguise the real destination. (Security warning level 2, warning)")
-                }
-            }
-            
-            // 7. Unencrypted http:// links (optional, off by default).
-            if AppSettings.shared.flagInsecureHTTP {
-                if url.scheme?.lowercased() == "http" {
-                    reasons.append("This link uses plain \"http://\" instead of \"https://\", so anything you send or receive on this page is not encrypted and could be read by others on the network. (Security warning level 3, advisory)")
-                }
-            }
-            
-            return URLSafetyResult(isSuspicious: !reasons.isEmpty, reasons: reasons)
+        guard AppSettings.shared.warnAboutSuspiciousLinks else { return .safe }
+
+        var reasons: [SafetyReason] = []
+
+        // Dangerous URI schemes. Checked first because such links often
+        // have no host at all.
+        if let scheme = url.scheme?.lowercased(), ["javascript", "data", "file"].contains(scheme) {
+            reasons.append(SafetyReason(
+                level: .serious,
+                message: "This link uses the \"\(scheme):\" scheme, which can run code or access local files directly."
+            ))
         }
+
+        guard let host = url.host?.lowercased() else {
+            return URLSafetyResult(reasons: reasons)
+        }
+
+        // Raw IP address instead of a domain name.
+        if AppSettings.shared.flagRawIPLinks, isIPAddress(host) {
+            reasons.append(SafetyReason(
+                level: .warning,
+                message: "This link points directly to a raw IP address instead of a normal domain name — legitimate sites almost never do this."
+            ))
+        }
+
+        // Homograph / mixed-script detection.
+        if AppSettings.shared.flagMixedScriptDomains, containsMixedScripts(host) {
+            reasons.append(SafetyReason(
+                level: .warning,
+                message: "This domain mixes different alphabets/scripts, a common trick to visually impersonate a trusted site."
+            ))
+        }
+
+        // Brand name + suspicious TLD or excessive subdomain combination.
+        // Split the host into words (at dots and dashes) and check whether
+        // any word STARTS with a brand name.
+        let words = host.split(whereSeparator: { $0 == "." || $0 == "-" }).map(String.init)
+        let brandMatch = commonlyImpersonatedBrands.first { brand in
+            words.contains { $0.hasPrefix(brand) }
+        }
+        if AppSettings.shared.flagBrandLookalikes, let brand = brandMatch {
+            let isBrandsOwnDomain = host == "\(brand).com" || host.hasSuffix(".\(brand).com")
+            let hasSuspiciousTLD = suspiciousTLDs.contains { host.hasSuffix($0) }
+            let subdomainCount = host.components(separatedBy: ".").count
+
+            if !isBrandsOwnDomain && (hasSuspiciousTLD || subdomainCount > 3) {
+                reasons.append(SafetyReason(
+                    level: .serious,
+                    message: "This domain includes \"\(brand)\" but isn't \(brand)'s actual domain, which is a common phishing pattern."
+                ))
+            }
+        }
+
+        // Punycode domains (xn--).
+        if AppSettings.shared.flagPunycodeDomains, host.contains("xn--") {
+            reasons.append(SafetyReason(
+                level: .warning,
+                message: "This domain uses punycode encoding, which can be used to visually disguise the real destination."
+            ))
+        }
+
+        // Excessive subdomain nesting.
+        if AppSettings.shared.flagDeepSubdomains {
+            let labelCount = host.components(separatedBy: ".").count
+            if labelCount > 5 {
+                reasons.append(SafetyReason(
+                    level: .advisory,
+                    message: "This domain has an unusually deep subdomain structure, which is sometimes used to disguise the real destination."
+                ))
+            }
+        }
+
+        // Unencrypted http:// links.
+        if AppSettings.shared.flagInsecureHTTP, url.scheme?.lowercased() == "http" {
+            reasons.append(SafetyReason(
+                level: .advisory,
+                message: "This link isn't encrypted (http://), so anything you send or receive on this page could be read by others on the network."
+            ))
+        }
+        
+        // The "@" trick: https://paypal.com@evil-site.xyz really goes to
+        // evil-site.xyz. Everything before the @ is just a "username".
+        if AppSettings.shared.flagAtSignTrick,
+           let user = URLComponents(url: url, resolvingAgainstBaseURL: false)?.user, !user.isEmpty {
+            reasons.append(SafetyReason(
+                level: .serious,
+                message: "This link has a fake \"username\" (\(user)) in front of the real address, a trick to make it look like a trusted site. It actually goes to \(host)."
+            ))
+        }
+
+        // Links that point straight at a program or installer.
+        let fileExtension = url.pathExtension.lowercased()
+        if AppSettings.shared.flagDownloadLinks, downloadExtensions.contains(fileExtension) {
+            reasons.append(SafetyReason(
+                level: .warning,
+                message: "This link downloads a program or installer (.\(fileExtension)). Only open it if you trust the site."
+            ))
+        }
+
+        // Shortened links hide where they really lead.
+        if AppSettings.shared.flagURLShorteners {
+            if urlShorteners.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) {
+                reasons.append(SafetyReason(
+                    level: .advisory,
+                    message: "This is a shortened link, so the real destination is hidden until you open it."
+                ))
+            }
+        }
+
+        // Most serious first.
+        return URLSafetyResult(reasons: reasons.sorted { $0.level < $1.level })
     }
 
     private static func isIPAddress(_ host: String) -> Bool {
-        // IPv4 check.
         let ipv4Pattern = #"^(\d{1,3}\.){3}\d{1,3}$"#
         if host.range(of: ipv4Pattern, options: .regularExpression) != nil {
             return true
         }
-        // IPv6 check (simplified — looks for colon-separated hex groups).
         if host.contains(":") && host.range(of: #"^[0-9a-fA-F:]+$"#, options: .regularExpression) != nil {
             return true
         }
@@ -129,11 +204,6 @@ enum URLSafetyChecker {
     }
 
     private static func containsMixedScripts(_ host: String) -> Bool {
-        // Strip the TLD/common structure and just look at the character scripts
-        // present in the host. If we see both Latin AND another alphabetic
-        // script (Cyrillic, Greek, etc.) in the same host, that's a strong
-        // signal of a homograph attack rather than a legitimately
-        // internationalized domain (which usually stays within one script).
         var hasLatin = false
         var hasOtherScript = false
 
@@ -153,4 +223,3 @@ enum URLSafetyChecker {
         return hasLatin && hasOtherScript
     }
 }
-

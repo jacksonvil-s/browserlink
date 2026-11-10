@@ -71,6 +71,32 @@ final class AppSettings: ObservableObject {
         didSet { persist(newValue: flagInsecureHTTP, oldValue: oldValue, key: Keys.flagInsecureHTTP) }
     }
     
+    /// Fake brand look-alike domains, like paypal-login.xyz.
+    @Published var flagBrandLookalikes: Bool {
+        didSet { persist(newValue: flagBrandLookalikes, oldValue: oldValue, key: Keys.flagBrandLookalikes) }
+    }
+
+    /// The "@" trick, like https://paypal.com@evil-site.xyz.
+    @Published var flagAtSignTrick: Bool {
+        didSet { persist(newValue: flagAtSignTrick, oldValue: oldValue, key: Keys.flagAtSignTrick) }
+    }
+
+    /// Links that point straight at a program or installer.
+    @Published var flagDownloadLinks: Bool {
+        didSet { persist(newValue: flagDownloadLinks, oldValue: oldValue, key: Keys.flagDownloadLinks) }
+    }
+
+    /// Shortened links like bit.ly.
+    @Published var flagURLShorteners: Bool {
+        didSet { persist(newValue: flagURLShorteners, oldValue: oldValue, key: Keys.flagURLShorteners) }
+    }
+    
+    /// Waits 3 seconds before the "I understand the risk" button works on
+    /// serious (red) warnings.
+    @Published var delaySevereConfirm: Bool {
+        didSet { persist(newValue: delaySevereConfirm, oldValue: oldValue, key: Keys.delaySevereConfirm) }
+    }
+    
     /// App mode (Preview window, browser chooser, both)
     @Published var appMode: AppMode {
         didSet { persist(newValue: appMode.rawValue, oldValue: oldValue.rawValue, key: Keys.appMode) }
@@ -83,6 +109,11 @@ final class AppSettings: ObservableObject {
     
     @Published var browserOrder: [String] {
         didSet { persist(newValue: browserOrder, oldValue: oldValue, key: Keys.browserOrder)}
+    }
+    
+    /// Bundle IDs of browsers the user has switched off in the chooser.
+    @Published var hiddenBrowsers: [String] {
+        didSet { persist(newValue: hiddenBrowsers, oldValue: oldValue, key: Keys.hiddenBrowsers) }
     }
     
     @Published var interfaceColour: String {
@@ -142,11 +173,17 @@ final class AppSettings: ObservableObject {
         static let flagPunycodeDomains = "flagPunycodeDomains"
         static let flagDeepSubdomains = "flagDeepSubdomains"
         static let flagInsecureHTTP = "flagInsecureHTTP"
+        static let flagBrandLookalikes = "flagBrandLookalikes"
+        static let flagAtSignTrick = "flagAtSignTrick"
+        static let flagDownloadLinks = "flagDownloadLinks"
+        static let flagURLShorteners = "flagURLShorteners"
+        static let delaySevereConfirm = "delaySevereConfirm"
         static let appMode = "appMode"
         static let shareAnonymousSystemInfo = "shareAnonymousSystemInfo"
         static let updateChannel = "updateChannel"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let browserOrder = "browserOrder"
+        static let hiddenBrowsers = "hiddenBrowsers"
         static let interfaceColour = "interfaceColour"
         static let hasLaunchedBefore = "hasLaunchedBefore"
     }
@@ -177,10 +214,16 @@ final class AppSettings: ObservableObject {
         flagPunycodeDomains = defaults.object(forKey: Keys.flagPunycodeDomains) as? Bool ?? true
         flagDeepSubdomains = defaults.object(forKey: Keys.flagDeepSubdomains) as? Bool ?? true
         flagInsecureHTTP = defaults.object(forKey: Keys.flagInsecureHTTP) as? Bool ?? true
+        flagBrandLookalikes = defaults.object(forKey: Keys.flagBrandLookalikes) as? Bool ?? true
+        flagAtSignTrick = defaults.object(forKey: Keys.flagAtSignTrick) as? Bool ?? true
+        flagDownloadLinks = defaults.object(forKey: Keys.flagDownloadLinks) as? Bool ?? true
+        flagURLShorteners = defaults.object(forKey: Keys.flagURLShorteners) as? Bool ?? true
+        delaySevereConfirm = defaults.object(forKey: Keys.delaySevereConfirm) as? Bool ?? true
         appMode = AppMode(rawValue: defaults.string(forKey: Keys.appMode) ?? "") ?? .both
         shareAnonymousSystemInfo = defaults.bool(forKey: Keys.shareAnonymousSystemInfo)
         updateChannel = UpdateChannel(rawValue: defaults.string(forKey: Keys.updateChannel) ?? "") ?? .stable
         browserOrder = defaults.stringArray(forKey: Keys.browserOrder) ?? []
+        hiddenBrowsers = defaults.stringArray(forKey: Keys.hiddenBrowsers) ?? []
         hasCompletedOnboarding = defaults.bool(forKey: Keys.hasCompletedOnboarding)
         interfaceColour = defaults.string(forKey: Keys.interfaceColour) ?? ""
     }
