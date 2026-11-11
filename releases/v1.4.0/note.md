@@ -18,6 +18,7 @@
 - New browser support:
 	- DuckDuckGo Browser
 	- Dia
+- Numbers added in browser chooser.
 
 **Fixed:**
 - Rare crashing caused by rapidly opening new chooser panels
