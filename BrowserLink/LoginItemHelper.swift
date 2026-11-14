@@ -12,16 +12,24 @@ enum LoginItemHelper {
         SMAppService.mainApp.status == .enabled
     }
 
-    /// Enables or disables launch-at-login.
+    /// Enables or disables launch-at-login. Callers should re-read `isEnabled`
+    /// afterwards, because registration can succeed but still need the user's
+    /// approval in System Settings, or fail outright.
     static func setEnabled(_ enabled: Bool) {
+        let service = SMAppService.mainApp
         do {
             if enabled {
-                if SMAppService.mainApp.status == .enabled {
-                    return // already on, nothing to do
+                guard service.status != .enabled else { return } // already on
+                try service.register()
+                if service.status == .requiresApproval {
+                    // Registered, but macOS wants the user to switch it on.
+                    SMAppService.openSystemSettingsLoginItems()
                 }
-                try SMAppService.mainApp.register()
             } else {
-                try SMAppService.mainApp.unregister()
+                // unregister() throws if there's nothing registered, e.g. the
+                // user already switched it off in System Settings.
+                guard service.status == .enabled || service.status == .requiresApproval else { return }
+                try service.unregister()
             }
         } catch {
             print("LoginItemHelper: failed to \(enabled ? "register" : "unregister"): \(error)")

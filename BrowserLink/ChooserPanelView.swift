@@ -15,6 +15,23 @@ struct ChooserPanelView: View {
     @ObservedObject var linkQueue: LinkQueue
     let onDismissAll: () -> Void
 
+    /// What LinkCleaner changed about this link (nil if nothing), and a way
+    /// to switch back to the link exactly as it arrived.
+    let cleaningNote: String?
+    let onUseOriginal: (() -> Void)?
+
+    /// Computed once by AppDelegate when the chooser opens (the checks are
+    /// not free, and this view redraws every second during a countdown).
+    let safetyResult: URLSafetyResult
+    
+    /// Per-site memory. `siteKey` is e.g. "github.com" (nil = not offered),
+    /// `rememberedBrowser` is the browser already saved for it, if any.
+    let siteKey: String?
+    let rememberedName: String?   // "Firefox" or "Quick Preview", if already saved
+    /// Receives a browser's bundle ID, or SiteKey.previewRule for Quick Preview.
+    let onRememberSite: (String) -> Void
+    let onForgetSite: () -> Void
+
     @State private var hasAppeared = false
     @State private var hasConfirmedDanger = false
     @StateObject private var faviconLoader = FaviconLoader()
@@ -22,11 +39,33 @@ struct ChooserPanelView: View {
     @State private var confirmSecondsLeft = 3
     @State private var pauseProgress: CGFloat = 0
     @State private var unlockBounce = false
+    @State private var didCopyLink = false
+    @State private var rememberThisSite = false
+    @State private var didForget = false
+    /// Which browser tile the arrow keys have highlighted (nil = none yet).
+    /// What the arrow keys have highlighted (nil = nothing yet).
+    private enum KeyFocus: Equatable { case preview, browser(Int), remember }
+    @State private var keyFocus: KeyFocus?
+    @State private var lastBrowserIndex = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Loaded once and reused, instead of reading the file on every chooser.
+    private static let popSound: NSSound? = Bundle.main
+        .url(forResource: "pop", withExtension: "mp3")
+        .flatMap { NSSound(contentsOf: $0, byReference: true) }
     
-    private var safetyResult: URLSafetyResult {
-        URLSafetyChecker.check(url)
+    /// The preview option is on screen in every mode except "chooser only"
+    /// (unless no browsers were found, when it's shown as the fallback).
+    private var previewShortcutAllowed: Bool {
+        settings.appMode != .chooser || browsers.isEmpty
     }
-    
+
+    /// The browser grid is on screen only when a browser exists and the mode
+    /// isn't "preview only". Keyboard shortcuts must follow what's visible.
+    private var browserShortcutsAllowed: Bool {
+        settings.appMode != .preview && !browsers.isEmpty
+    }
+
     /// True while a level 1 or 2 warning is waiting for the user's confirmation.
     private var isLocked: Bool {
         safetyResult.requiresConfirmation && !hasConfirmedDanger
@@ -52,9 +91,12 @@ struct ChooserPanelView: View {
     private func runConfirmPause() async {
         guard pauseApplies else { return }
         
-        // One smooth sweep for the whole countdown.
-        withAnimation(.linear(duration: Double(confirmSecondsLeft))) {
-            pauseProgress = 1
+        // One smooth sweep for the whole countdown (skipped under Reduce
+        // Motion; the countdown number in the button still counts down).
+        if !reduceMotion {
+            withAnimation(.linear(duration: Double(confirmSecondsLeft))) {
+                pauseProgress = 1
+            }
         }
         
         while confirmSecondsLeft > 0 {
@@ -64,6 +106,7 @@ struct ChooserPanelView: View {
         }
         
         // Little "ready!" bounce when the button unlocks.
+        guard !reduceMotion else { return }
         withAnimation(.spring(response: 0.28, dampingFraction: 0.4)) { unlockBounce = true }
         try? await Task.sleep(nanoseconds: 150_000_000)
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { unlockBounce = false }
@@ -78,6 +121,10 @@ struct ChooserPanelView: View {
             ScrollView {
                 if !linkQueue.waiting.isEmpty || linkQueue.blockedCount > 0 {
                     queueNotice
+                }
+
+                if let cleaningNote {
+                    cleaningNotice(cleaningNote)
                 }
                 
                 if isLocked {
@@ -96,7 +143,7 @@ struct ChooserPanelView: View {
                             previewOption
                             Text("Note: browser chooser unavailable because it has been switched off.")
                                 .foregroundStyle(.secondary)
-                                .font(.system(size: 8))
+                                .font(.system(size: 10.5))
                         case .chooser:
                             Text("Open your link in:")
                                 .font(.system(size: 11.5, weight: .semibold))
@@ -106,7 +153,8 @@ struct ChooserPanelView: View {
                             browserGrid
                             Text("Note: preview window unavailable because it has been switched off.")
                                 .foregroundStyle(.secondary)
-                                .font(.system(size: 8))
+                                .font(.system(size: 10.5))
+                            rememberRow
                         case .both:
                             //Both shown
                             previewOption
@@ -122,12 +170,13 @@ struct ChooserPanelView: View {
                             .padding(.vertical, 6)
                             
                             browserGrid
+                            rememberRow
                         }
                     } else if browsers.isEmpty {
                         previewOption
                         Text("Note: browser chooser unavailable because we did not detect a browser on your system.")
                             .foregroundStyle(.secondary)
-                            .font(.system(size: 8))
+                            .font(.system(size: 10.5))
                     }
                 }
                 .padding(24)
@@ -143,7 +192,7 @@ struct ChooserPanelView: View {
                 }
                 
                 Text("Version \(appVersion) (build \(buildNumber))")
-                    .font(.system(size: 8))
+                    .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
                 
                 Spacer()
@@ -168,11 +217,10 @@ struct ChooserPanelView: View {
         .shadow(color: .black.opacity(0.25), radius: 30, y: 12)
         .onAppear {
             if AppSettings.shared.playSoundOnChooserAppear {
-                if let url = Bundle.main.url(forResource: "pop", withExtension: "mp3") {
-                    NSSound(contentsOf: url, byReference: true)?.play()
-                }
+                Self.popSound?.stop()   // restart if a previous one is still playing
+                Self.popSound?.play()
             }
-            faviconLoader.load(for: url)
+            faviconLoader.load(for: url, safetyResult: safetyResult)
         }
         // Dismiss on Escape, other keybinds.
         .background(
@@ -181,15 +229,19 @@ struct ChooserPanelView: View {
                 onSelectIndex: { index in
                     // Block shortcuts while the warning is still showing
                     if isLocked { return }
+                    guard browserShortcutsAllowed else { return }
                     if index >= 0 && index < browsers.count {
-                        onOpenIn(browsers[index])
+                        choose(browsers[index])
                     }
                 },
                 onPreview: {
                     // Same check for the Preview shortcut
                     if isLocked { return }
-                    onPreview()
-                }
+                    guard previewShortcutAllowed else { return }
+                    choosePreview()
+                },
+                onArrow: moveSelection,
+                onReturn: activateFocus
             )
         )
     }
@@ -211,6 +263,17 @@ struct ChooserPanelView: View {
             }
             Spacer()
             HStack(spacing: 8) {
+                Button(action: copyLink) {
+                    Image(systemName: didCopyLink ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(didCopyLink ? Color.green : Color.secondary)
+                        .padding(8)
+                        .background(Circle().fill(.secondary.opacity(0.12)))
+                }
+                .buttonStyle(.plain)
+                .help("Copy link")
+                .accessibilityLabel(didCopyLink ? "Link copied" : "Copy link")
+
                 Button(action: onOpenPreferences) {
                     Image(systemName: "gearshape")
                         .font(.system(size: 12, weight: .bold))
@@ -220,6 +283,7 @@ struct ChooserPanelView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Preferences…")
+                .accessibilityLabel("Preferences")
 
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
@@ -229,11 +293,23 @@ struct ChooserPanelView: View {
                         .background(Circle().fill(.secondary.opacity(0.12)))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
             }
         }
         .padding(.horizontal, 24)
         .padding(.top, 20)
         .padding(.bottom, 16)
+    }
+
+    /// Works even while a warning has the options locked: copying a link
+    /// doesn't open it.
+    private func copyLink() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        didCopyLink = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            didCopyLink = false
+        }
     }
 
     private var faviconPlaceholder: some View {
@@ -286,6 +362,29 @@ struct ChooserPanelView: View {
         .padding(.top, 12)
     }
 
+    // MARK: - Link cleaned notice
+
+    private func cleaningNotice(_ note: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text(note)
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            if let onUseOriginal {
+                Button("Use original link", action: onUseOriginal)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+    }
+
     // MARK: - Warning Banner
 
     private var warningBanner: some View {
@@ -320,7 +419,7 @@ struct ChooserPanelView: View {
             }
 
             Button(action: {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.8)) {
                     hasConfirmedDanger = true
                 }
             }) {
@@ -334,7 +433,7 @@ struct ChooserPanelView: View {
                     .background(
                         ZStack(alignment: .leading) {
                             tint.opacity(0.12)
-                            if isWaitingToConfirm {
+                            if isWaitingToConfirm && !reduceMotion {
                                 tint.opacity(0.30)
                                     .scaleEffect(x: pauseProgress, y: 1, anchor: .leading)
                                     .transition(.opacity)
@@ -347,7 +446,7 @@ struct ChooserPanelView: View {
             .disabled(isWaitingToConfirm)
             .opacity(isWaitingToConfirm ? 0.8 : 1)
             .scaleEffect(unlockBounce ? 1.05 : 1)
-            .animation(.easeInOut(duration: 0.3), value: isWaitingToConfirm)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: isWaitingToConfirm)
         }
         .padding(18)
         .background(
@@ -398,7 +497,7 @@ struct ChooserPanelView: View {
     // MARK: - Preview Option (the primary, emphasized action)
 
     private var previewOption: some View {
-        Button(action: onPreview) {
+        Button(action: choosePreview) {
             HStack(spacing: 16) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
@@ -433,6 +532,132 @@ struct ChooserPanelView: View {
             )
         }
         .buttonStyle(HoverScaleButtonStyle())
+        .overlay {
+            // Highlight for arrow-key selection.
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(settings.tintColor, lineWidth: 2)
+                .opacity(keyFocus == .preview ? 1 : 0)
+                .allowsHitTesting(false)
+        }
+    }
+    
+    // MARK: - Remember this site
+
+    /// Opens the link in `browser`, first saving a rule if the box is ticked.
+    private func choose(_ browser: InstalledBrowser) {
+        if rememberThisSite, siteKey != nil { onRememberSite(browser.id) }
+        onOpenIn(browser)
+    }
+
+    /// Same as `choose`, for the Quick Preview button and its P shortcut.
+    private func choosePreview() {
+        if rememberThisSite, siteKey != nil { onRememberSite(SiteKey.previewRule) }
+        onPreview()
+    }
+
+    // MARK: Arrow-key selection
+
+    private var rememberRowIsVisible: Bool {
+        siteKey != nil && safetyResult.reasons.isEmpty && browserShortcutsAllowed
+    }
+
+    /// Arrow keys walk through everything on screen, top to bottom: Quick
+    /// Preview, then the browser grid, then the "remember" row. Return or
+    /// Space activates whatever is highlighted.
+    private func moveSelection(_ arrow: KeyCatcher.Arrow) {
+        guard !isLocked else { return }
+        let count = browsers.count
+        let columns = max(min(count, 4), 1)   // matches browserGrid
+
+        guard let current = keyFocus else {
+            if browserShortcutsAllowed { focusBrowser(0) }
+            else if previewShortcutAllowed { keyFocus = .preview }
+            return
+        }
+
+        switch current {
+        case .preview:
+            if arrow == .down, browserShortcutsAllowed {
+                focusBrowser(min(lastBrowserIndex, count - 1))
+            }
+        case .browser(let index):
+            switch arrow {
+            case .left:
+                if index > 0 { focusBrowser(index - 1) }
+            case .right:
+                if index + 1 < count { focusBrowser(index + 1) }
+            case .up:
+                if index - columns >= 0 { focusBrowser(index - columns) }
+                else if previewShortcutAllowed { keyFocus = .preview }
+            case .down:
+                let lastRowStart = ((count - 1) / columns) * columns
+                if index + columns < count { focusBrowser(index + columns) }
+                else if index < lastRowStart { focusBrowser(count - 1) }   // short last row
+                else if rememberRowIsVisible { keyFocus = .remember }
+            }
+        case .remember:
+            if arrow == .up, browserShortcutsAllowed {
+                focusBrowser(min(lastBrowserIndex, count - 1))
+            }
+        }
+    }
+
+    private func focusBrowser(_ index: Int) {
+        lastBrowserIndex = index
+        keyFocus = .browser(index)
+    }
+
+    private func activateFocus() {
+        guard !isLocked, let current = keyFocus else { return }
+        switch current {
+        case .preview:
+            if previewShortcutAllowed { choosePreview() }
+        case .browser(let index):
+            if browserShortcutsAllowed, browsers.indices.contains(index) { choose(browsers[index]) }
+        case .remember:
+            guard rememberRowIsVisible else { return }
+            if rememberedName != nil, !didForget {
+                didForget = true
+                onForgetSite()
+            } else {
+                rememberThisSite.toggle()
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var rememberRow: some View {
+        // Rules never apply to links with warnings, so none is offered there.
+        if let siteKey, safetyResult.reasons.isEmpty {
+            Group {
+                if let rememberedName, !didForget {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        Text("\(siteKey) opens in \(rememberedName) automatically.")
+                        Button("Forget") {
+                            didForget = true
+                            onForgetSite()
+                        }
+                        .buttonStyle(.link)
+                    }
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                } else {
+                    Toggle("Remember my choice for \(siteKey)", isOn: $rememberThisSite)
+                        .toggleStyle(.checkbox)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .overlay {
+                // Highlight for arrow-key selection.
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(settings.tintColor, lineWidth: 2)
+                    .opacity(keyFocus == .remember ? 1 : 0)
+            }
+        }
     }
 
     // MARK: - Browser Grid
@@ -443,7 +668,7 @@ struct ChooserPanelView: View {
             spacing: 10
         ) {
             ForEach(Array(browsers.enumerated()), id: \.element.id) { index, browser in
-                Button(action: { onOpenIn(browser) }) {
+                Button(action: { choose(browser) }) {
                     VStack(spacing: 8) {
                         Image(nsImage: browser.icon)
                             .resizable()
@@ -459,11 +684,29 @@ struct ChooserPanelView: View {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .fill(.secondary.opacity(0.06))
                     )
+                    .overlay {
+                        // Highlight for arrow-key selection.
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(settings.tintColor, lineWidth: 2)
+                            .opacity(keyFocus == .browser(index) ? 1 : 0)
+                    }
+                    .accessibilityAddTraits(keyFocus == .browser(index) ? .isSelected : [])
                     .overlay(alignment: .topLeading) {
                         // Only 1–9 work as shortcuts (one keypress each).
                         if index < 9 {
                             KeyHintBadge(key: "\(index + 1)")
                                 .padding(6)
+                        }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        // Found by scanning, not on our built-in browser list.
+                        if !browser.isRecognised {
+                            Image(systemName: "questionmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.orange)
+                                .padding(6)
+                                .help("Potentially unsupported: BrowserLink doesn't recognise this app as a browser, so links may not open correctly in it.")
+                                .accessibilityLabel("Potentially unsupported")
                         }
                     }
                 }
@@ -478,10 +721,11 @@ struct ChooserPanelView: View {
 /// Subtle hover + press scale feedback, used across the chooser buttons.
 struct HoverScaleButtonStyle: ButtonStyle {
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : (isHovering ? 1.02 : 1.0))
+            .scaleEffect(reduceMotion ? 1.0 : (configuration.isPressed ? 0.96 : (isHovering ? 1.02 : 1.0)))
             .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
             .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovering)
             .onHover { hovering in
@@ -497,21 +741,37 @@ struct KeyCatcher: NSViewRepresentable {
     let onEscape: () -> Void
     let onSelectIndex: (Int) -> Void   // new: 0-based index into browsers
     let onPreview: () -> Void          // new
+    let onArrow: (Arrow) -> Void
+    let onReturn: () -> Void
+
+    enum Arrow { case left, right, up, down }
 
     func makeNSView(context: Context) -> NSView {
         let view = EscapeCatchingView()
         view.onEscape = onEscape
         view.onSelectIndex = onSelectIndex
         view.onPreview = onPreview
+        view.onArrow = onArrow
+        view.onReturn = onReturn
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    /// Keep the callbacks current so they never act on stale values.
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let view = nsView as? EscapeCatchingView else { return }
+        view.onEscape = onEscape
+        view.onSelectIndex = onSelectIndex
+        view.onPreview = onPreview
+        view.onArrow = onArrow
+        view.onReturn = onReturn
+    }
 
     final class EscapeCatchingView: NSView {
         var onEscape: (() -> Void)?
         var onSelectIndex: ((Int) -> Void)?
         var onPreview: (() -> Void)?
+        var onArrow: ((Arrow) -> Void)?
+        var onReturn: (() -> Void)?
 
         override var acceptsFirstResponder: Bool { true }
 
@@ -524,6 +784,18 @@ struct KeyCatcher: NSViewRepresentable {
             if event.keyCode == 53 { // Escape
                 onEscape?()
                 return
+            }
+            
+            // Arrow keys and Return (only when no ⌘/⌥/⌃ is held).
+            if event.modifierFlags.intersection([.command, .option, .control]).isEmpty {
+                switch event.keyCode {
+                case 123: onArrow?(.left); return
+                case 124: onArrow?(.right); return
+                case 125: onArrow?(.down); return
+                case 126: onArrow?(.up); return
+                case 36, 76, 49: onReturn?(); return   // Return, keypad Enter, Space
+                default: break
+                }
             }
 
             guard let chars = event.charactersIgnoringModifiers else {
@@ -559,6 +831,7 @@ struct KeyHintBadge: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(Capsule().fill(.secondary.opacity(0.15)))
+            .accessibilityHidden(true)
     }
 }
 

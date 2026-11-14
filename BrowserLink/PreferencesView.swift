@@ -1,5 +1,6 @@
 import SwiftUI
 import Sparkle
+import Combine
 
 struct PreferencesView: View {
     let updater: SPUUpdater
@@ -36,9 +37,9 @@ struct PreferencesView: View {
                     .tabItem { Label("Browser", systemImage: "globe") }
                     .tag(PreferencesTab.browser)
                 
-                ApperancePane(settings: settings)
+                AppearancePane(settings: settings)
                     .tabItem { Label("Appearance", systemImage: "paintpalette") }
-                    .tag(PreferencesTab.apperance)
+                    .tag(PreferencesTab.appearance)
                 
                 SecurityPane(settings: settings)
                     .tabItem { Label("Security", systemImage: "checkmark.shield") }
@@ -80,7 +81,7 @@ struct PreferencesView: View {
 private enum PreferencesTab: Hashable {
     case general
     case browser
-    case apperance
+    case appearance
     case security
     case updates
     case about
@@ -214,9 +215,24 @@ private struct GeneralPane: View {
 
                     SwitchRow(
                         title: "Show Site Icons in Chooser",
-                        subtitle: "Fetched from Google's favicon service. Disable if you don't want data sent to Google.",
+                        subtitle: "Off by default. Fetched from Google's favicon service, so Google sees the sites you open. Never used for links with warnings, IP addresses or local network names.",
                         isOn: $settings.showFaviconsInChooser
                     )
+
+                    RowDivider()
+
+                    SettingsRow(
+                        title: "Show Chooser On",
+                        subtitle: settings.chooserScreen.explanation
+                    ) {
+                        Picker("", selection: $settings.chooserScreen) {
+                            ForEach(ChooserScreen.allCases) { screen in
+                                Text(screen.label).tag(screen)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 220)
+                    }
                 }
                 
                 SettingsCard(title: "Onboarding") {
@@ -224,8 +240,8 @@ private struct GeneralPane: View {
                         onRestartOnboarding()
                     }
                     .buttonStyle(.borderedProminent)
+                    .padding(14)
                 }
-                .padding(14)
 
                 Spacer()
             }
@@ -239,75 +255,6 @@ private struct GeneralPane: View {
 private struct BrowserPane: View {
     @ObservedObject var settings: AppSettings
     let onSetDefaultBrowser: () -> Void
-    
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                SettingsCard(title: "Default Browser") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("BrowserLink intercepts links opened anywhere on your Mac and lets you choose where they go — a quick, private preview or a real browser.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Button("Set as Default Browser…", action: onSetDefaultBrowser)
-                            .buttonStyle(.borderedProminent)
-                    }
-                    .padding(14)
-                }
-
-                SettingsCard(title: "Behaviour") {
-                    ComingSoonRow(
-                        title: "Remember Per-Site Choices",
-                        subtitle: "Skip the chooser next time for a site you've already picked a browser for."//,
-                        //isOn: $settings.rememberPerSiteChoices
-                    )
-
-                    RowDivider()
-
-                    SwitchRow(
-                        title: "Reveal Downloads in Finder",
-                        subtitle: "After a file finishes saving from Quick Preview.",
-                        isOn: $settings.revealDownloadsInFinder
-                    )
-                    
-                    RowDivider()
-                    
-                    SettingsRow(
-                        title: "App mode",
-                        subtitle: settings.appMode.explanation
-                    ) {
-                        Picker("", selection: $settings.appMode) {
-                            ForEach(AppMode.allCases) { mode in
-                                Label(mode.label, systemImage: mode.icon)
-                                    .tag(mode)
-                            }
-                        }
-                            .labelsHidden()
-                            .frame(width: 250)
-                    }
-                    
-                    
-                }
-
-                Spacer()
-                
-            } //VStack
-            .padding(24)
-        }//Scroll view
-    } //View
-}
-
-// MARK: - Apperance Pane
-private struct ApperancePane: View {
-    @ObservedObject var settings: AppSettings
-    
-    private var colorBinding: Binding<Color> {
-        Binding(
-            get: { settings.resolvedInterfaceColour ?? .accentColor },
-            set: { settings.interfaceColour = $0.toHex() ?? "" }
-        )
-    }
     
     @State private var browsers: [InstalledBrowser] = []
     private let browserRowHeight: CGFloat = 40
@@ -334,34 +281,208 @@ private struct ApperancePane: View {
         isVisible(browser) && browsers.filter { isVisible($0) }.count <= 1
     }
     
+    @State private var siteSearch = ""
+    @ObservedObject private var recentLinks = RecentLinks.shared
+
+    private var filteredSiteRules: [(site: String, browserID: String)] {
+        settings.siteRules
+            .filter { siteSearch.isEmpty || $0.key.localizedCaseInsensitiveContains(siteSearch) }
+            .map { (site: $0.key, browserID: $0.value) }
+            .sorted { $0.site < $1.site }
+    }
     
-    
+    /// The menu-bar shortcuts again, for when the menu bar icon is hidden.
+    private var quickAccessCard: some View {
+        SettingsCard(title: "Quick Access") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("The same shortcuts as the menu bar, for when its icon is hidden.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button("Open Link from Clipboard…") {
+                    NotificationCenter.default.post(name: .openClipboardLinkRequested, object: nil)
+                }
+
+                if settings.keepRecentLinks {
+                    Divider().opacity(0.3)
+                    Text("Recent Links")
+                        .font(.system(size: 12, weight: .semibold))
+                    if recentLinks.urls.isEmpty {
+                        Text("None yet.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(recentLinks.urls, id: \.self) { url in
+                            Button(RecentLinks.title(for: url)) {
+                                NotificationCenter.default.post(name: .openRecentLinkRequested, object: url)
+                            }
+                            .buttonStyle(.link)
+                            .help(url.absoluteString)
+                        }
+                        Button("Clear Recent Links", role: .destructive) {
+                            recentLinks.clear()
+                        }
+                    }
+                }
+            }
+            .padding(14)
+        }
+    }
+
+    private var rememberedSitesCard: some View {
+        SettingsCard(title: "Remembered Sites") {
+            VStack(alignment: .leading, spacing: 10) {
+                if settings.siteRules.isEmpty {
+                    Text("No sites yet. Tick \"Remember my choice for …\" in the chooser and the site will appear here.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    if settings.siteRules.count > 6 {
+                        TextField("Search sites", text: $siteSearch)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    ForEach(filteredSiteRules, id: \.site) { rule in
+                        siteRuleRow(site: rule.site, browserID: rule.browserID)
+                    }
+                    Button("Forget All", role: .destructive) {
+                        settings.siteRules = [:]
+                    }
+                }
+            }
+            .padding(14)
+        }
+    }
+
+    private func siteRuleRow(site: String, browserID: String) -> some View {
+        let browser = browsers.first { $0.id == browserID }
+        let isPreview = browserID == SiteKey.previewRule
+        return HStack(spacing: 10) {
+            if isPreview {
+                Image(systemName: "eye.fill").frame(width: 22, height: 22)
+                    .foregroundStyle(.secondary)
+            } else if let browser {
+                Image(nsImage: browser.icon).resizable().frame(width: 22, height: 22)
+            } else {
+                Image(systemName: "questionmark.app").frame(width: 22, height: 22)
+                    .foregroundStyle(.secondary)
+            }
+            Text(site).font(.system(size: 12.5, weight: .medium))
+            Spacer()
+            Text(isPreview ? "Quick Preview" : (browser?.name ?? "Not installed"))
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+            Button {
+                settings.siteRules.removeValue(forKey: site)
+            } label: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Forget this site")
+            .accessibilityLabel("Forget \(site)")
+        }
+    }
+
     var body: some View {
         ScrollView {
-            VStack (alignment: .leading, spacing: 20) {
-                
-                SettingsCard(title: "Appearance") {
-                    ColorPicker("Interface Colour", selection: colorBinding, supportsOpacity: false)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                    
-                    Divider().opacity(0.5).padding(.leading, 14)
-                    
-                    Button("Use System Colour") {
-                        settings.interfaceColour = ""
+            VStack(alignment: .leading, spacing: 20) {
+                SettingsCard(title: "Default Browser") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("BrowserLink intercepts links opened anywhere on your Mac and lets you choose where they go — a quick, private preview or a real browser.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        DefaultBrowserStatusLabel()
+
+                        Button("Set as Default Browser…", action: onSetDefaultBrowser)
+                            .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    
-                    Text("The interface colour will appear mostly everywhere around the UI. There may be a limited amount of instances where the system accent colour may be seen instead.")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.tertiary)
-                        .padding(.bottom, 8)
+                    .padding(14)
                 }
-                .padding(14)
+
+                SettingsCard(title: "Link Cleanup") {
+                    SwitchRow(
+                        title: "Remove Tracking Parameters",
+                        subtitle: "Strips things like utm_source and fbclid from links before they open. The chooser tells you when it did, and lets you use the original.",
+                        isOn: $settings.stripTrackingParameters
+                    )
+
+                    RowDivider()
+
+                    SwitchRow(
+                        title: "Skip Redirect Wrappers",
+                        subtitle: "Opens the real destination of links wrapped by Google, Facebook, Instagram, LinkedIn, YouTube, Slack and similar. Security scanners such as Outlook Safe Links are left alone.",
+                        isOn: $settings.unwrapRedirectLinks
+                    )
+                }
+
+                SettingsCard(title: "Behaviour") {
+                    SwitchRow(
+                        title: "Remember Per-Site Choices",
+                        subtitle: "Skip the chooser for sites you've picked a browser for. Links with safety warnings always show it. Hold ⌥ as a link opens to see it anyway (some apps use ⌥-click for their own purposes), or use \"Pause Remembered Sites\" in the menu bar.",
+                        isOn: $settings.rememberPerSiteChoices
+                    )
+                    
+                    
+                    RowDivider()
+
+                    SwitchRow(
+                        title: "Pause Remembered Sites",
+                        subtitle: "Show the chooser for every link for now. Resets when BrowserLink restarts. Also in the menu bar.",
+                        isOn: $settings.pauseSiteRules
+                    )
+                    .disabled(!settings.rememberPerSiteChoices)
+
+                    RowDivider()
+                    
+                    SwitchRow(
+                        title: "Keep a Recent Links List",
+                        subtitle: "Adds a Recent Links menu to the menu bar for reopening a link you dismissed by accident. Kept in memory only, never saved, and cleared when BrowserLink quits.",
+                        isOn: $settings.keepRecentLinks
+                    )
+
+                    RowDivider()
+
+                    SwitchRow(
+                        title: "Reveal Downloads in Finder",
+                        subtitle: "After a file finishes saving from Quick Preview.",
+                        isOn: $settings.revealDownloadsInFinder
+                    )
+
+                    RowDivider()
+
+                    SwitchRow(
+                        title: "Allow JavaScript in Quick Preview",
+                        subtitle: "Turning this off is safer but some pages won't work. You can also switch it per preview with the JS button in the preview window.",
+                        isOn: $settings.previewJavaScriptEnabled
+                    )
+                    
+                    RowDivider()
+                    
+                    SettingsRow(
+                        title: "App mode",
+                        subtitle: settings.appMode.explanation
+                    ) {
+                        Picker("", selection: $settings.appMode) {
+                            ForEach(AppMode.allCases) { mode in
+                                Label(mode.label, systemImage: mode.icon)
+                                    .tag(mode)
+                            }
+                        }
+                            .labelsHidden()
+                            .frame(width: 250)
+                    }
+                    
+                    
+                }
                 
+                
+                quickAccessCard
+
+                rememberedSitesCard
+
                 SettingsCard(title: "Browser display order") {
                     Text("Drag a browser up or down to change its order. Use the switch to hide it from the chooser.")
                         .font(.system(size: 11))
@@ -382,6 +503,15 @@ private struct ApperancePane: View {
                                     .frame(width: 20, height: 20)
                                 Text(browser.name)
                                     .font(.system(size: 13))
+                                if !browser.isRecognised {
+                                    Text("Potentially unsupported")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(.orange)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(Color.orange.opacity(0.15)))
+                                        .help("BrowserLink doesn't recognise this app as a browser. It says it can open web links, but links may not open correctly in it.")
+                                }
                                 Spacer()
                                 Toggle("", isOn: visibleBinding(for: browser))
                                     .toggleStyle(.switch)
@@ -416,18 +546,64 @@ private struct ApperancePane: View {
                         )
                     }
                     .buttonStyle(.borderedProminent)
+                    .padding(14)
                 }
                 .opacity(settings.appMode == .preview ? 0.4 : 1)
                 .disabled(settings.appMode == .preview)
 
                 Text(
                     settings.appMode == .preview
-                    ? "The browser list is switched off because App mode is set to \"\(AppMode.preview.label)\". You can change this in the Browser tab."
-                    : "To hide every browser from the chooser, set App mode to \"\(AppMode.preview.label)\" in the Browser tab. Otherwise, at least one browser always stays visible."
+                    ? "The browser list is switched off because App mode is set to \"\(AppMode.preview.label)\". You can change this under Behaviour above."
+                    : "To hide every browser from the chooser, set App mode to \"\(AppMode.preview.label)\" under Behaviour above. Otherwise, at least one browser always stays visible."
                 )
                 .font(.system(size: 10.5))
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 4)
+
+                Spacer()
+                
+            } //VStack
+            .padding(24)
+        }//Scroll view
+    } //View
+}
+
+// MARK: - Appearance Pane
+private struct AppearancePane: View {
+    @ObservedObject var settings: AppSettings
+    
+    private var colorBinding: Binding<Color> {
+        Binding(
+            get: { settings.resolvedInterfaceColour ?? .accentColor },
+            set: { settings.interfaceColour = $0.toHex() ?? "" }
+        )
+    }
+    
+    var body: some View {
+        ScrollView {
+            VStack (alignment: .leading, spacing: 20) {
+                
+                SettingsCard(title: "Appearance") {
+                    ColorPicker("Interface Colour", selection: colorBinding, supportsOpacity: false)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                    
+                    Divider().opacity(0.5).padding(.leading, 14)
+                    
+                    Button("Use System Colour") {
+                        settings.interfaceColour = ""
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    
+                    Text("The interface colour will appear mostly everywhere around the UI. There may be a limited amount of instances where the system accent colour may be seen instead.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 10)
+                }
+                
                 
                 Spacer()
                 
@@ -498,12 +674,21 @@ private struct SecurityPane: View {
                     SeverityHeader(
                         level: .serious,
                         title: "Serious",
-                        detail: "Almost certainly an attempt to trick or harm you. Links using javascript:, data: or file: are always flagged."
+                        detail: "Almost certainly an attempt to trick or harm you."
                     )
                     SettingsCard {
                         SwitchRow(
+                            title: "Dangerous Link Types",
+                            subtitle: "Flags javascript:, data: and file: links, which can run code or read files on your Mac.",
+                            isOn: $settings.flagDangerousSchemes
+                        )
+                        .dimmed(unless: settings.warnAboutSuspiciousLinks)
+
+                        RowDivider()
+
+                        SwitchRow(
                             title: "Fake Brand Look-alikes",
-                            subtitle: "Flags domains that imitate well-known brands, like paypal-login.xyz.",
+                            subtitle: "Flags domains that imitate well-known brands, like paypal-login.com. Strong matches are serious; weaker ones show as a warning or a small notice.",
                             isOn: $settings.flagBrandLookalikes
                         )
                         .dimmed(unless: settings.warnAboutSuspiciousLinks)
@@ -538,7 +723,7 @@ private struct SecurityPane: View {
                     SettingsCard {
                         SwitchRow(
                             title: "Raw IP Address Links",
-                            subtitle: "Links that use numbers like 192.168.0.1 instead of a website name.",
+                            subtitle: "Links that use numbers (including disguised forms like 0x7f000001) instead of a website name. Addresses on your own network only show a small notice.",
                             isOn: $settings.flagRawIPLinks
                         )
                         .dimmed(unless: settings.warnAboutSuspiciousLinks)
@@ -582,7 +767,7 @@ private struct SecurityPane: View {
                     SettingsCard {
                         SwitchRow(
                             title: "Unusually Deep Subdomains",
-                            subtitle: "Domains with more than 5 subdomains contained within.",
+                            subtitle: "Domains made of six or more dot-separated parts, like a.b.c.d.example.com.",
                             isOn: $settings.flagDeepSubdomains
                         )
                         .dimmed(unless: settings.warnAboutSuspiciousLinks)
@@ -627,7 +812,7 @@ private struct UpdatesPane: View {
     @State private var automaticallyChecksForUpdates: Bool
     @State private var automaticallyDownloadsUpdates: Bool
     @State private var checkFrequency: CheckFrequency
-    @State private var selectedUpdateChannel: UpdateChannel
+    @StateObject private var updateChecker: CheckForUpdatesViewModel
 
     init(settings: AppSettings, updater: SPUUpdater) {
         self.settings = settings
@@ -635,7 +820,7 @@ private struct UpdatesPane: View {
         _automaticallyChecksForUpdates = State(initialValue: updater.automaticallyChecksForUpdates)
         _automaticallyDownloadsUpdates = State(initialValue: updater.automaticallyDownloadsUpdates)
         _checkFrequency = State(initialValue: CheckFrequency(seconds: updater.updateCheckInterval))
-        _selectedUpdateChannel = State(initialValue: settings.updateChannel)
+        _updateChecker = StateObject(wrappedValue: CheckForUpdatesViewModel(updater: updater))
     }
 
     var body: some View {
@@ -693,9 +878,9 @@ private struct UpdatesPane: View {
                     
                     SettingsRow(
                         title: "Update Channel",
-                        subtitle: selectedUpdateChannel.explanation
+                        subtitle: settings.updateChannel.explanation
                     ) {
-                        Picker("", selection: $selectedUpdateChannel) {
+                        Picker("", selection: $settings.updateChannel) {
                             ForEach(UpdateChannel.allCases) { channel in
                                 Text(channel.label).tag(channel)
                             }
@@ -703,9 +888,6 @@ private struct UpdatesPane: View {
                         .labelsHidden()
                         .pickerStyle(.menu)
                         .frame(width: 160)
-                        .onChange(of: selectedUpdateChannel) { _, newValue in
-                            settings.updateChannel = newValue
-                        }
                     }
                 }
 
@@ -722,6 +904,7 @@ private struct UpdatesPane: View {
                             updater.checkForUpdates()
                         }
                         .buttonStyle(.bordered)
+                        .disabled(!updateChecker.canCheckForUpdates)
 
                         if let lastCheck = updater.lastUpdateCheckDate {
                             Text("Last checked \(lastCheck.formatted(.relative(presentation: .named)))")
@@ -844,3 +1027,15 @@ private enum CheckFrequency: CaseIterable, Identifiable, Hashable {
     }
 }
 
+
+/// Mirrors Sparkle's `canCheckForUpdates` (it's false while a check or an
+/// install is already running), so the button can disable itself. This is the
+/// pattern Sparkle's own documentation recommends for SwiftUI.
+private final class CheckForUpdatesViewModel: ObservableObject {
+    @Published var canCheckForUpdates = false
+
+    init(updater: SPUUpdater) {
+        updater.publisher(for: \.canCheckForUpdates)
+            .assign(to: &$canCheckForUpdates)
+    }
+}

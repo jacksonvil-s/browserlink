@@ -1,6 +1,7 @@
 import SwiftUI
+import Sparkle
 
-/// The three steps of first-run onboarding, in display order.
+/// The steps of first-run onboarding, in display order.
 /// Add cases here (and a matching case in `OnboardingView`'s step switch)
 /// to extend the flow later — progress dots, back/continue wiring, and
 /// completion persistence all adapt automatically.
@@ -32,6 +33,11 @@ struct OnboardingView: View {
     @ObservedObject private var settings = AppSettings.shared
     @State private var step: OnboardingStep = .welcome
     @State private var hasAppeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Mirrors Sparkle's "check for updates automatically" choice. Defaults to
+    /// on; this card is what replaces Sparkle's own permission prompt.
+    @State private var automaticUpdateChecks = true
     
     /// Which edge the next/previous step should slide in from — set right
     /// before `step` changes so the transition direction always matches
@@ -74,7 +80,9 @@ struct OnboardingView: View {
             }
             .id(step)
             .transition(
-                .asymmetric(
+                reduceMotion
+                ? AnyTransition.opacity
+                : AnyTransition.asymmetric(
                     insertion: .move(edge: transitionEdge).combined(with: .opacity),
                     removal: .move(edge: transitionEdge == .trailing ? .leading : .trailing).combined(with: .opacity)
                 )
@@ -99,12 +107,20 @@ struct OnboardingView: View {
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .scaleEffect(hasAppeared ? 1 : 0.94)
+        .scaleEffect(hasAppeared || reduceMotion ? 1 : 0.94)
         .opacity(hasAppeared ? 1 : 0)
         .onAppear {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+            withAnimation(reduceMotion ? Animation.easeOut(duration: 0.15) : Animation.spring(response: 0.4, dampingFraction: 0.75)) {
                 hasAppeared = true
             }
+            // If the user already made this choice (e.g. "Restart onboarding"),
+            // show it; otherwise keep the default of on.
+            if UserDefaults.standard.object(forKey: "SUEnableAutomaticChecks") != nil {
+                automaticUpdateChecks = updater.automaticallyChecksForUpdates
+            }
+        }
+        .onChange(of: automaticUpdateChecks) { _, newValue in
+            updater.automaticallyChecksForUpdates = newValue
         }
     }
     
@@ -191,6 +207,9 @@ struct OnboardingView: View {
     
     // MARK: Browser
     let promptSetDefaultBrowser: () -> Void
+
+    /// Used to save the "check for updates automatically" choice.
+    let updater: SPUUpdater
     
     private var browserStep: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -205,6 +224,8 @@ struct OnboardingView: View {
                 promptSetDefaultBrowser()
             }
             .buttonStyle(.borderedProminent)
+
+            DefaultBrowserStatusLabel()
             
             
             VStack(alignment: .leading, spacing: 4) {
@@ -250,7 +271,7 @@ struct OnboardingView: View {
             OnboardingCard(title: "Chooser") {
                 onboardingToggleRow(
                     title: "Show Site Icons in Chooser",
-                    subtitle: "Fetched from Google's favicon service. You can switch it off if you have privacy concerns.",
+                    subtitle: "Off by default. Fetched from Google's favicon service, so Google sees the sites you open. Never used for links with warnings.",
                     isOn: $settings.showFaviconsInChooser
                 )
                 Divider().opacity(0.5).padding(.leading, 14)
@@ -277,6 +298,14 @@ struct OnboardingView: View {
                 .disabled(!settings.warnAboutSuspiciousLinks)
             }
             
+            OnboardingCard(title: "Updates") {
+                onboardingToggleRow(
+                    title: "Check for Updates Automatically",
+                    subtitle: "BrowserLink checks for new versions in the background and lets you know when one is ready. You can change this any time in Preferences → Updates.",
+                    isOn: $automaticUpdateChecks
+                )
+            }
+            
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -299,8 +328,10 @@ struct OnboardingView: View {
             Text("I do want to put a personal thank you for even trying this out- even if it turns out at the end, it's not for you. I do hope you enjoy this app while using it, as much as I enjoy developing it for you.")
             Text("-Jacksonvil, 2026.")
             
+            DefaultBrowserStatusLabel()
+
             Text("(Press the get started button below to start using the app)")
-                .font(.system(size: 8))
+                .font(.system(size: 10.5))
                 .foregroundStyle(.secondary)
         }
     }
@@ -371,6 +402,9 @@ struct OnboardingView: View {
             
             Button(isLastStep ? "Get Started" : "Continue") {
                 if isLastStep {
+                    // Save the choice even if the toggle was never touched, so
+                    // Sparkle never needs to ask on its own.
+                    updater.automaticallyChecksForUpdates = automaticUpdateChecks
                     onFinish()
                 } else {
                     goTo(step: nextStep)
@@ -391,7 +425,7 @@ struct OnboardingView: View {
                     .frame(width: candidate == step ? 18 : 6, height: 6)
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: step)
+        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.75), value: step)
     }
     
     private var isLastStep: Bool {

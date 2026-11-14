@@ -20,11 +20,11 @@ extension Color {
 
     /// Converts back to a "RRGGBB" hex string for persisting.
     func toHex() -> String? {
-        guard let components = NSColor(self).usingColorSpace(.deviceRGB)?.cgColor.components,
+        // sRGB, because that's what `init?(hex:)` reads the value back as.
+        guard let components = NSColor(self).usingColorSpace(.sRGB)?.cgColor.components,
               components.count >= 3 else { return nil }
-        let r = Int(components[0] * 255)
-        let g = Int(components[1] * 255)
-        let b = Int(components[2] * 255)
-        return String(format: "%02X%02X%02X", r, g, b)
+        // Round (don't truncate) so 0.2 * 255 = 50.999… becomes 51, not 50.
+        func byte(_ value: CGFloat) -> Int { min(255, max(0, Int((value * 255).rounded()))) }
+        return String(format: "%02X%02X%02X", byte(components[0]), byte(components[1]), byte(components[2]))
     }
 }

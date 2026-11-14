@@ -17,20 +17,27 @@ final class AppSettings: ObservableObject {
 
     // MARK: - Live (already wired to real behavior)
 
-    /// Mirrors SMAppService's actual registration state. Setting this
-    /// calls straight through to LoginItemHelper, so the OS-level state
-    /// and this published value can't disagree.
+    /// Mirrors SMAppService's actual registration state. Setting this asks
+    /// LoginItemHelper to (un)register, then re-reads the real state: if macOS
+    /// refused, or still needs the user's approval in System Settings, the
+    /// value snaps back so the toggle never claims something that isn't true.
     @Published var launchAtLoginEnabled: Bool {
         didSet {
-            guard launchAtLoginEnabled != oldValue else { return }
+            guard launchAtLoginEnabled != oldValue, !isSyncingLaunchAtLogin else { return }
             LoginItemHelper.setEnabled(launchAtLoginEnabled)
+
+            let actual = LoginItemHelper.isEnabled
+            if actual != launchAtLoginEnabled {
+                // Assigning inside our own didSet doesn't re-trigger it.
+                launchAtLoginEnabled = actual
+            }
         }
     }
 
-    @Published var hideMenuBarIcon: Bool {
-        didSet { persist(newValue: hideMenuBarIcon, oldValue: oldValue, key: Keys.hideMenuBarIcon) }
-    }
-    
+    /// True while we're copying the OS state INTO `launchAtLoginEnabled`, so
+    /// that write doesn't turn around and call register()/unregister() again.
+    private var isSyncingLaunchAtLogin = false
+
     @Published var hasCompletedOnboarding: Bool {
         didSet { persist(newValue: hasCompletedOnboarding, oldValue: oldValue, key: Keys.hasCompletedOnboarding) }
     }
@@ -107,6 +114,38 @@ final class AppSettings: ObservableObject {
         didSet { persist(newValue: playSoundOnChooserAppear, oldValue: oldValue, key: Keys.playSoundOnChooserAppear) }
     }
     
+    /// Reveal a file in Finder right after PreviewWindowView
+    /// finishes saving it to Downloads.
+    @Published var revealDownloadsInFinder: Bool {
+        didSet { persist(newValue: revealDownloadsInFinder, oldValue: oldValue, key: Keys.revealDownloadsInFinder) }
+    }
+
+    /// URLSafetyChecker's check for javascript:, data: and file: links.
+    @Published var flagDangerousSchemes: Bool {
+        didSet { persist(newValue: flagDangerousSchemes, oldValue: oldValue, key: Keys.flagDangerousSchemes) }
+    }
+
+    /// Whether Quick Preview runs page JavaScript by default. The preview
+    /// window also has its own per-preview toggle.
+    @Published var previewJavaScriptEnabled: Bool {
+        didSet { persist(newValue: previewJavaScriptEnabled, oldValue: oldValue, key: Keys.previewJavaScriptEnabled) }
+    }
+
+    /// LinkCleaner: remove utm_*, fbclid and similar tracking parameters.
+    @Published var stripTrackingParameters: Bool {
+        didSet { persist(newValue: stripTrackingParameters, oldValue: oldValue, key: Keys.stripTrackingParameters) }
+    }
+
+    /// LinkCleaner: open the real destination of known redirect wrappers.
+    @Published var unwrapRedirectLinks: Bool {
+        didSet { persist(newValue: unwrapRedirectLinks, oldValue: oldValue, key: Keys.unwrapRedirectLinks) }
+    }
+
+    /// Which screen the chooser panel appears on (multi-monitor setups).
+    @Published var chooserScreen: ChooserScreen {
+        didSet { persist(newValue: chooserScreen.rawValue, oldValue: oldValue.rawValue, key: Keys.chooserScreen) }
+    }
+
     @Published var browserOrder: [String] {
         didSet { persist(newValue: browserOrder, oldValue: oldValue, key: Keys.browserOrder)}
     }
@@ -132,18 +171,50 @@ final class AppSettings: ObservableObject {
         resolvedInterfaceColour ?? .accentColor
     }
 
+    /// Which Sparkle release channel to receive updates from (stable, release
+    /// candidate or beta). Read by AppDelegate.allowedChannels(for:).
+    @Published var updateChannel: UpdateChannel {
+        didSet { persist(newValue: updateChannel.rawValue, oldValue: oldValue.rawValue, key: Keys.updateChannel) }
+    }
+
+    /// A plain-value copy of the safety switches, which URLSafetyChecker
+    /// takes as input so it never has to read saved preferences itself.
+    var safetySettings: SafetySettings {
+        SafetySettings(
+            warnAboutSuspiciousLinks: warnAboutSuspiciousLinks,
+            flagDangerousSchemes: flagDangerousSchemes,
+            flagRawIPLinks: flagRawIPLinks,
+            flagMixedScriptDomains: flagMixedScriptDomains,
+            flagPunycodeDomains: flagPunycodeDomains,
+            flagDeepSubdomains: flagDeepSubdomains,
+            flagInsecureHTTP: flagInsecureHTTP,
+            flagBrandLookalikes: flagBrandLookalikes,
+            flagAtSignTrick: flagAtSignTrick,
+            flagDownloadLinks: flagDownloadLinks,
+            flagURLShorteners: flagURLShorteners
+        )
+    }
+
     // MARK: - Future (persisted now, not yet read by any behavior)
+    
+    /// Keep a short "Recent Links" list in the menu bar. Held in memory only.
+    @Published var keepRecentLinks: Bool {
+        didSet { persist(newValue: keepRecentLinks, oldValue: oldValue, key: Keys.keepRecentLinks) }
+    }
+    
+    /// Site (e.g. "github.com") -> bundle identifier of the browser to open it in.
+    @Published var siteRules: [String: String] {
+        didSet { persist(newValue: siteRules, oldValue: oldValue, key: Keys.siteRules) }
+    }
+
+    /// Temporarily ignore every site rule. Deliberately NOT saved, so it
+    /// resets when the app restarts and can't be left on by accident.
+    @Published var pauseSiteRules = false
     
     /// Future: remember a chosen browser per-domain and skip the chooser
     /// next time a link from that domain is opened.
     @Published var rememberPerSiteChoices: Bool {
         didSet { persist(newValue: rememberPerSiteChoices, oldValue: oldValue, key: Keys.rememberPerSiteChoices) }
-    }
-
-    /// Reveal a file in Finder right after PreviewWindowView
-    /// finishes saving it to Downloads.
-    @Published var revealDownloadsInFinder: Bool {
-        didSet { persist(newValue: revealDownloadsInFinder, oldValue: oldValue, key: Keys.revealDownloadsInFinder) }
     }
 
     /// Future: opt-in to Sparkle's anonymous system-profile data. Currently
@@ -154,18 +225,12 @@ final class AppSettings: ObservableObject {
         didSet { persist(newValue: shareAnonymousSystemInfo, oldValue: oldValue, key: Keys.shareAnonymousSystemInfo) }
     }
 
-    /// Future: which release channel to receive update notifications for
-    /// (would point Sparkle at a different appcast feed per channel). Not
-    /// wired to Sparkle or any update logic yet — persisted only.
-    @Published var updateChannel: UpdateChannel {
-        didSet { persist(newValue: updateChannel.rawValue, oldValue: oldValue.rawValue, key: Keys.updateChannel) }
-    }
-
     private enum Keys {
-        static let hideMenuBarIcon = "hideMenuBarIcon"
         static let playSoundOnChooserAppear = "playSoundOnChooserAppear"
         static let showFaviconsInChooser = "showFaviconsInChooser"
         static let rememberPerSiteChoices = "rememberPerSiteChoices"
+        static let siteRules = "siteRules"
+        static let keepRecentLinks = "keepRecentLinks"
         static let revealDownloadsInFinder = "revealDownloadsInFinder"
         static let warnAboutSuspiciousLinks = "warnAboutSuspiciousLinks"
         static let flagRawIPLinks = "flagRawIPLinks"
@@ -186,6 +251,11 @@ final class AppSettings: ObservableObject {
         static let hiddenBrowsers = "hiddenBrowsers"
         static let interfaceColour = "interfaceColour"
         static let hasLaunchedBefore = "hasLaunchedBefore"
+        static let flagDangerousSchemes = "flagDangerousSchemes"
+        static let previewJavaScriptEnabled = "previewJavaScriptEnabled"
+        static let stripTrackingParameters = "stripTrackingParameters"
+        static let unwrapRedirectLinks = "unwrapRedirectLinks"
+        static let chooserScreen = "chooserScreen"
     }
 
     private init() {
@@ -199,14 +269,19 @@ final class AppSettings: ObservableObject {
             defaults.set(true, forKey: Keys.hasLaunchedBefore)
         }
         
-        hideMenuBarIcon = defaults.bool(forKey: Keys.hideMenuBarIcon)
+        // The old "Hide Menu Bar Icon" option is gone (macOS has its own switch
+        // now); clear any value it left behind.
+        defaults.removeObject(forKey: "hideMenuBarIcon")
 
         // Defaults chosen so each toggle reflects today's actual behavior
-        // (e.g. favicons and safety warnings are already always-on) rather
+        // (e.g. safety warnings are already always-on; favicons stay off
+        // because they contact Google) rather
         // than silently changing what the app does the moment it's updated.
         playSoundOnChooserAppear = defaults.object(forKey: Keys.playSoundOnChooserAppear) as? Bool ?? false
         showFaviconsInChooser = defaults.object(forKey: Keys.showFaviconsInChooser) as? Bool ?? false
-        rememberPerSiteChoices = defaults.bool(forKey: Keys.rememberPerSiteChoices)
+        rememberPerSiteChoices = defaults.object(forKey: Keys.rememberPerSiteChoices) as? Bool ?? true
+        siteRules = defaults.dictionary(forKey: Keys.siteRules) as? [String: String] ?? [:]
+        keepRecentLinks = defaults.bool(forKey: Keys.keepRecentLinks)
         revealDownloadsInFinder = defaults.bool(forKey: Keys.revealDownloadsInFinder)
         warnAboutSuspiciousLinks = defaults.object(forKey: Keys.warnAboutSuspiciousLinks) as? Bool ?? true
         flagRawIPLinks = defaults.object(forKey: Keys.flagRawIPLinks) as? Bool ?? true
@@ -226,6 +301,11 @@ final class AppSettings: ObservableObject {
         hiddenBrowsers = defaults.stringArray(forKey: Keys.hiddenBrowsers) ?? []
         hasCompletedOnboarding = defaults.bool(forKey: Keys.hasCompletedOnboarding)
         interfaceColour = defaults.string(forKey: Keys.interfaceColour) ?? ""
+        flagDangerousSchemes = defaults.object(forKey: Keys.flagDangerousSchemes) as? Bool ?? true
+        previewJavaScriptEnabled = defaults.object(forKey: Keys.previewJavaScriptEnabled) as? Bool ?? true
+        stripTrackingParameters = defaults.object(forKey: Keys.stripTrackingParameters) as? Bool ?? true
+        unwrapRedirectLinks = defaults.object(forKey: Keys.unwrapRedirectLinks) as? Bool ?? true
+        chooserScreen = ChooserScreen(rawValue: defaults.string(forKey: Keys.chooserScreen) ?? "") ?? .underMouse
     }
 
     private func persist<T: Equatable>(newValue: T, oldValue: T, key: String) {
@@ -240,9 +320,11 @@ final class AppSettings: ObservableObject {
     /// push notification for that, only polling on demand.
     func refreshLaunchAtLoginFromSystem() {
         let live = LoginItemHelper.isEnabled
-        if live != launchAtLoginEnabled {
-            launchAtLoginEnabled = live
-        }
+        guard live != launchAtLoginEnabled else { return }
+        // Copy the OS state in WITHOUT asking the OS to change anything.
+        isSyncingLaunchAtLogin = true
+        launchAtLoginEnabled = live
+        isSyncingLaunchAtLogin = false
     }
 }
 
@@ -309,6 +391,30 @@ enum AppMode: String, CaseIterable, Identifiable {
             return "square.grid.3x2"
         case .both:
             return "capsule.on.rectangle"
+        }
+    }
+}
+
+// MARK: Chooser screen
+enum ChooserScreen: String, CaseIterable, Identifiable {
+    case underMouse
+    case mainScreen
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .underMouse: return "Screen with the mouse pointer"
+        case .mainScreen: return "Screen with the active window"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .underMouse:
+            return "The chooser appears on whichever display your mouse is on."
+        case .mainScreen:
+            return "The chooser appears on the display holding the window you're working in."
         }
     }
 }
