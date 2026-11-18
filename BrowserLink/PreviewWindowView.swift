@@ -519,6 +519,12 @@ struct PreviewLoadError: Identifiable {
                 systemImage: "lock.open.fill",
                 canRetry: false
             )
+        case NSURLErrorUserCancelledAuthentication:
+            return PreviewLoadError(
+                title: "Sign-in Cancelled",
+                message: "This site needs a username and password to show the page. Try again to sign in, or open it in a regular browser.",
+                systemImage: "lock.fill"
+            )
         case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted:
             return PreviewLoadError(
                 title: "Secure Connection Failed",
@@ -592,6 +598,9 @@ struct WebView: NSViewRepresentable {
         // written to disk, ever, for this preview.
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
+        // The default WKWebView user agent lacks the Safari token, so some
+        // sites serve a degraded page or an "unsupported browser" wall.
+        config.applicationNameForUserAgent = "Version/17.0 Safari/605.1.15"
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
@@ -723,6 +732,69 @@ struct WebView: NSViewRepresentable {
                 panel.beginSheetModal(for: window, completionHandler: finish)
             } else {
                 finish(panel.runModal())
+            }
+        }
+
+        // MARK: HTTP sign-in
+
+        /// Basic and digest authentication (routers, intranets, staging
+        /// sites). Everything else (certificates, proxies, …) keeps the
+        /// system's default handling.
+        func webView(
+            _ webView: WKWebView,
+            didReceive challenge: URLAuthenticationChallenge,
+            completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+        ) {
+            let space = challenge.protectionSpace
+            let method = space.authenticationMethod
+            let isPasswordLogin = method == NSURLAuthenticationMethodHTTPBasic
+                || method == NSURLAuthenticationMethodHTTPDigest
+            guard isPasswordLogin, !space.isProxy() else {
+                completionHandler(.performDefaultHandling, nil)
+                return
+            }
+
+            let host = space.host
+            var details = "\(host) is asking for a username and password"
+            if let realm = space.realm, !realm.isEmpty {
+                details += " (\"\(realm.prefix(60))\")"
+            }
+            details += "."
+            if challenge.previousFailureCount > 0 {
+                details += " The last attempt was not accepted."
+            }
+            details += "\n\nBrowserLink does not keep these credentials, but what you type is sent to the website. Only enter them if you trust it."
+
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = "Sign in to \(host)"
+            alert.informativeText = details
+
+            let userField = NSTextField(frame: NSRect(x: 0, y: 30, width: 280, height: 24))
+            userField.placeholderString = "Username"
+            let passwordField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+            passwordField.placeholderString = "Password"
+            userField.nextKeyView = passwordField
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 54))
+            container.addSubview(userField)
+            container.addSubview(passwordField)
+            alert.accessoryView = container
+            alert.window.initialFirstResponder = userField
+            alert.addButton(withTitle: "Sign In")
+            alert.addButton(withTitle: "Cancel")
+
+            show(alert, in: webView) { response in
+                if response == .alertFirstButtonReturn {
+                    // .none: used for this page load only, never stored.
+                    let credential = URLCredential(
+                        user: userField.stringValue,
+                        password: passwordField.stringValue,
+                        persistence: .none
+                    )
+                    completionHandler(.useCredential, credential)
+                } else {
+                    completionHandler(.cancelAuthenticationChallenge, nil)
+                }
             }
         }
 

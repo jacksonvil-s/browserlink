@@ -60,7 +60,28 @@ enum BrowserDetector {
     // Scanning reads several Info.plist files, and this is called from view
     // bodies, so the result is kept for a few seconds.
     private static var cache: (date: Date, browsers: [InstalledBrowser])?
-    private static let cacheLifetime: TimeInterval = 15
+    private static let cacheLifetime: TimeInterval = 300
+
+    /// Fills the cache a few seconds after launch, once startup work has
+    /// settled, so the first chooser doesn't pay for the scan.
+    static func prewarm(after delay: TimeInterval = 3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            _ = installedBrowsers()
+        }
+    }
+
+    private static var refreshPending = false
+
+    /// Rescans shortly after the chooser appears (after its animation), so a
+    /// browser installed or removed since the last scan shows up next time.
+    static func refreshSoon(after delay: TimeInterval = 1.5) {
+        guard !refreshPending else { return }
+        refreshPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            refreshPending = false
+            cache = (Date(), scanForBrowsers())
+        }
+    }
 
     /// Known browsers that are installed (in list order), followed by any other
     /// app that declares it can open http AND https links (alphabetical,
@@ -78,7 +99,7 @@ enum BrowserDetector {
         let known: [InstalledBrowser] = knownBrowserIDs.compactMap { entry in
             guard let appURL = NSWorkspace.shared.urlForApplication(
                 withBundleIdentifier: entry.id
-            ) else {
+            ), !isInTrash(appURL) else {
                 return nil
             }
             let icon = NSWorkspace.shared.icon(forFile: appURL.path)
@@ -103,7 +124,7 @@ enum BrowserDetector {
         for appURL in NSWorkspace.shared.urlsForApplications(toOpen: probe) {
             // Helper apps tucked inside another app (login items, VPN agents…)
             // aren't browsers in their own right.
-            guard !appURL.path.contains(".app/Contents/") else { continue }
+            guard !appURL.path.contains(".app/Contents/"), !isInTrash(appURL) else { continue }
 
             guard let bundle = Bundle(url: appURL),
                   let id = bundle.bundleIdentifier,
@@ -121,6 +142,11 @@ enum BrowserDetector {
         }
 
         return found.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// LaunchServices can still report an app that was dragged to the Trash.
+    private static func isInTrash(_ url: URL) -> Bool {
+        url.path.contains("/.Trash/")
     }
 
     private static func declaresWebSchemes(_ bundle: Bundle) -> Bool {

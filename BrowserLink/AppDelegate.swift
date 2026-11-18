@@ -2,11 +2,13 @@ import AppKit
 import SwiftUI
 import Sparkle
 import Combine
+import UserNotifications
+import os
 
 /// The real brain of the app. Because this is a background agent (LSUIElement = true,
 /// set in Info.plist), there's no Dock icon and no default window — everything is
 /// driven from here.
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpdaterDelegate, SPUStandardUserDriverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation, SPUUpdaterDelegate, SPUStandardUserDriverDelegate, UNUserNotificationCenterDelegate {
     
     /// The persistent menu bar item — our only always-visible presence.
     private var statusItem: NSStatusItem?
@@ -63,6 +65,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
     private var updateIsAvailable = false
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Must be set before launch finishes so a click on an update
+        // notification that launched/woke the app is delivered.
+        UNUserNotificationCenter.current().delegate = self
+        
         // Sparkle shows its own "check for updates automatically?" prompt when
         // the user has never made that choice. BrowserLink asks during onboarding
         // instead. People who finished onboarding before that question existed
@@ -88,6 +94,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
     private func completeLaunchSetup() {
         setupStatusItem()
         rebuildMenu()
+        // Scan for installed browsers a few seconds from now, once launch
+        // work has settled, so the first chooser appears instantly.
+        BrowserDetector.prewarm()
+        resumePendingUpdateReminder()
     }
     
     /// Subscribes to the shared settings so that ANY change — whether it
@@ -260,11 +270,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         menu.addItem(NSMenuItem.separator())
         
         let updateItem = NSMenuItem(
-            title: updateIsAvailable ? "Update Available: Install…" : "Check for Updates…",
-            action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+            title: updateReadyToInstall
+                ? "Update Ready: Restart to Install…"
+                : (updateIsAvailable ? "Update Available: Install…" : "Check for Updates…"),
+            action: #selector(checkForUpdatesFromMenu),
             keyEquivalent: ""
         )
-        updateItem.target = updaterController
         menu.addItem(updateItem)
         
         menu.addItem(NSMenuItem.separator())
@@ -356,7 +367,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
             let entry = NSMenuItem(title: RecentLinks.title(for: url), action: #selector(openRecentLink(_:)), keyEquivalent: "")
             entry.target = self
             entry.representedObject = url
-            entry.toolTip = url.absoluteString
             submenu.addItem(entry)
         }
         submenu.addItem(.separator())
@@ -437,15 +447,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         )
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 540),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 580),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        // The sidebar layout is resizable, so the window (not the SwiftUI
+        // content) decides its size.
+        hosting.sizingOptions = []
         window.contentViewController = hosting
         
-        hosting.view.frame = NSRect(x: 0, y: 0, width: 720, height: 540)
-        window.setContentSize(NSSize(width: 720, height: 540))
+        hosting.view.frame = NSRect(x: 0, y: 0, width: 800, height: 580)
+        window.setContentSize(NSSize(width: 800, height: 580))
+        window.minSize = NSSize(width: 700, height: 480)
+        window.toolbarStyle = .unified
         
         window.title = "BrowserLink Preferences"
         window.isReleasedWhenClosed = false
@@ -505,10 +520,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
 
         // Anything suspicious always gets the chooser and its warnings.
         guard URLSafetyChecker.check(url).reasons.isEmpty else { return false }
+
+        // An app spamming links to a remembered site would otherwise open
+        // unlimited tabs (the queue's spam protection only covers the
+        // chooser). Past the limit, links fall through to the chooser path.
+        guard allowRememberedOpen() else { return false }
         
         // "Always use Quick Preview" rule.
         if browserID == SiteKey.previewRule {
             guard settings.appMode != .chooser else { return false }   // preview is switched off
+            // This link can't be previewed (e.g. plain http), so ask instead.
+            guard LinkSupport.previewUnavailableReason(for: url) == nil else { return false }
             openPreviewWindow(for: url)
             toast.show(
                 message: "Opened \(site) in Quick Preview",
@@ -538,6 +560,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         return true
     }
     
+    /// When remembered-site links were last opened without the chooser.
+    private var rememberedOpenTimes: [Date] = []
+
+    /// At most 5 automatic opens per 5 seconds.
+    private func allowRememberedOpen() -> Bool {
+        let now = Date()
+        rememberedOpenTimes.removeAll { now.timeIntervalSince($0) > 5 }
+        guard rememberedOpenTimes.count < 5 else { return false }
+        rememberedOpenTimes.append(now)
+        return true
+    }
+
     private func showNextQueuedURL() {
         guard let next = linkQueue.next() else { return }
         presentChooser(for: next)
@@ -604,7 +638,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         let installedBrowsers = BrowserDetector.visibleBrowsers()
         
         // If LinkCleaner changed this link, tell the user and let them undo it.
-        let safetyResult = URLSafetyChecker.check(url)
+        // A local .html file is harmless; skip the "dangerous file: link" warning.
+        let safetyResult = LinkSupport.isLocalHTMLFile(url) ? URLSafetyResult.safe : URLSafetyChecker.check(url)
         let cleaning = cleanedLinks.removeValue(forKey: url)
         var useOriginal: (() -> Void)? = nil
         if let cleaning {
@@ -656,6 +691,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
             },
             onForgetSite: {
                 if let site { AppSettings.shared.siteRules.removeValue(forKey: site) }
+            },
+            onPreferredHeight: { [weak self] height in
+                self?.resizeChooser(toContentHeight: height)
             }
         )
         
@@ -667,12 +705,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         // you're on a 13" laptop or a 32" external display.
         let screen = targetScreen()
         let screenFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let panelWidth = min(max(screenFrame.width * 0.34, 620), 900)
-        let panelHeight = min(max(screenFrame.height * 0.42, 420), 620)
+        // The width is fixed; the height is only a starting guess. The view
+        // reports the height it really needs and resizeChooser(…) applies it.
+        let panelWidth = min(max(screenFrame.width * 0.30, 520), 580)
+        let panelHeight: CGFloat = 380
         
-        let panel = NSPanel(
+        // ChooserPanel (see ChooserPanelView.swift) is a non-activating panel
+        // that can still take keyboard focus.
+        let panel = ChooserPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
-            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
+            styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
         )
@@ -695,26 +737,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .transient]
+        // .fullScreenAuxiliary is what lets the chooser appear on top of a
+        // full-screen app instead of on some other Space; .canJoinAllSpaces
+        // keeps it on whichever Space is current.
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         
-        // Center it, slightly above true vertical center — see design notes.
+        // Spotlight-style placement: horizontally centred, with the TOP edge
+        // fixed near the top of the screen so the panel grows downward as its
+        // content changes.
         if let screen = screen {
-            let x = screen.visibleFrame.midX - panel.frame.width / 2
-            let y = screen.visibleFrame.midY - panel.frame.height / 2 + (screen.visibleFrame.height * 0.08)
-            panel.setFrameOrigin(NSPoint(x: x, y: y))
+            let visible = screen.visibleFrame
+            chooserTopY = visible.maxY - visible.height * 0.20
+            let x = visible.midX - panel.frame.width / 2
+            panel.setFrameOrigin(NSPoint(x: x, y: chooserTopY - panel.frame.height))
+        } else {
+            chooserTopY = panel.frame.maxY
         }
         
         chooserPanel = panel
+        chooserPreferredHeight = nil
+        chooserAnimatingIn = true
         
-        // Start slightly lower and invisible, then rise into place while
-        // fading in. Only the window's position moves, never its size,
-        // so SwiftUI's layout is never disturbed.
-        // With Reduce Motion on, skip the rise and just fade in quickly.
+        // Fade in while rising slightly. With Reduce Motion on, skip the rise
+        // and just fade in quickly.
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        let finalFrame = panel.frame
-        var startFrame = finalFrame
-        if !reduceMotion { startFrame.origin.y -= 28 }
-        panel.setFrame(startFrame, display: false)
         panel.alphaValue = 0
         
         // The first panel has to build its SwiftUI view and window surface,
@@ -725,16 +771,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         NSApp.activate()
         panel.makeKeyAndOrderFront(nil)
         panel.displayIfNeeded()
+        // Rescan in the background of the open animation, so a browser
+        // installed since the last scan appears on the next link.
+        BrowserDetector.refreshSoon()
         
-        DispatchQueue.main.async {
-            NSAnimationContext.runAnimationGroup { context in
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            // The view usually reported its real height during layout above;
+            // animate to THAT size so the panel never opens at a wrong one.
+            let height = self.chooserPreferredHeight ?? panel.frame.height
+            let finalFrame = NSRect(
+                x: panel.frame.minX,
+                y: self.chooserTopY - height,
+                width: panel.frame.width,
+                height: height
+            )
+            var startFrame = finalFrame
+            if !reduceMotion { startFrame.origin.y -= 28 }
+            panel.setFrame(startFrame, display: false)
+            
+            NSAnimationContext.runAnimationGroup({ context in
                 context.duration = reduceMotion ? 0.15 : 0.35
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 context.allowsImplicitAnimation = true
                 panel.animator().alphaValue = 1
                 panel.animator().setFrame(finalFrame, display: true)
-            }
+            }, completionHandler: { [weak self] in
+                guard let self, self.chooserPanel === panel else { return }
+                self.chooserAnimatingIn = false
+                // Catch up with any size change that arrived mid-animation.
+                self.applyChooserHeight(animated: false)
+            })
         }
+    }
+    
+    // MARK: - Chooser sizing
+    
+    /// The Y of the chooser's top edge; the panel grows and shrinks downward from it.
+    private var chooserTopY: CGFloat = 0
+    /// The latest height the chooser's content asked for (already clamped).
+    private var chooserPreferredHeight: CGFloat?
+    /// True while the open animation runs; size changes wait until it ends.
+    private var chooserAnimatingIn = false
+    
+    /// Called by the chooser view whenever its content height changes
+    /// (e.g. when a warning is confirmed and its banner disappears).
+    private func resizeChooser(toContentHeight height: CGFloat) {
+        guard let panel = chooserPanel else { return }
+        let visible = (panel.screen ?? targetScreen())?.visibleFrame
+        let maxHeight = (visible?.height ?? 900) * 0.72
+        chooserPreferredHeight = min(max(height, 200), maxHeight)
+        if !chooserAnimatingIn {
+            applyChooserHeight(animated: true)
+        }
+    }
+    
+    private func applyChooserHeight(animated: Bool) {
+        guard let panel = chooserPanel, let height = chooserPreferredHeight else { return }
+        let frame = NSRect(
+            x: panel.frame.minX,
+            y: chooserTopY - height,
+            width: panel.frame.width,
+            height: height
+        )
+        guard abs(panel.frame.height - height) > 1 || abs(panel.frame.minY - frame.minY) > 1 else { return }
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        panel.setFrame(frame, display: true, animate: animated && !reduceMotion)
     }
     
     
@@ -752,23 +854,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
         
+        // A sheet on the Settings window instead of runModal(): runModal blocks
+        // the main thread in a nested loop while AppKit waits on lower-priority
+        // text-input services (a priority inversion). The prompt is only
+        // reachable from Settings, so that window is always there.
+        guard let window = preferencesWindow else { return }
         NSApp.activate()
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        
-        var text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        window.makeKeyAndOrderFront(nil)
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.openDebugURL(from: field.stringValue)
+        }
+    }
+    
+    /// Sends the text typed into the debug prompt through the real link path.
+    private func openDebugURL(from input: String) {
+        var text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         // Bare "example.com" gets https://; anything with a scheme is used as
         // typed, so javascript: / file: links can be tested too.
         if !text.contains(":") { text = "https://" + text }
         guard let url = URL(string: text) else { NSSound.beep(); return }
         
-        UserDefaults.standard.set(field.stringValue, forKey: "debugLastURL")
+        UserDefaults.standard.set(input, forKey: "debugLastURL")
         application(NSApp, open: [url])   // same path as a real incoming link
     }
 
     // MARK: - Preview Window
 
     private func openPreviewWindow(for url: URL) {
+        // Defence in depth: the chooser already hides Quick Preview for links
+        // it can't open.
+        guard LinkSupport.previewUnavailableReason(for: url) == nil else {
+            NSSound.beep()
+            return
+        }
         let id = UUID()
 
         let contentView = PreviewWindowView(
@@ -787,7 +907,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
 
         let hosting = NSHostingController(rootView: contentView)
 
-        let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let screenFrame = targetScreen()?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let windowWidth = min(max(screenFrame.width * 0.55, 800), 1400)
         let windowHeight = min(max(screenFrame.height * 0.68, 560), 950)
 
@@ -804,7 +924,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.minSize = NSSize(width: 640, height: 480)
-        window.center()
+        // Centre on the screen chosen in "Show chooser on", not always the main one.
+        window.setFrameOrigin(NSPoint(
+            x: screenFrame.midX - windowWidth / 2,
+            y: screenFrame.midY - windowHeight / 2
+        ))
         window.isReleasedWhenClosed = false
 
         previewWindows[id] = window
@@ -851,20 +975,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
             }
         }
     
-    // MARK: - SPUStandardUserDriverDelegate (gentle update reminders)
+    // MARK: - Updates: gentle reminders
+    //
+    // BrowserLink has no Dock icon, so Sparkle's pop-up for a SCHEDULED check
+    // would appear out of nowhere. Instead, when a scheduled check finds an
+    // update we (1) put a ↓ next to the menu bar icon and (2) post a system
+    // notification, because a menu bar manager can hide the icon without
+    // macOS knowing. Clicking either brings up Sparkle's normal update window.
+
+    private static let pendingUpdateKey = "pendingUpdateBuild"
+    private static let notifiedUpdateKey = "lastNotifiedUpdateBuild"
+    private static let updateNotificationID = "BrowserLink.updateAvailable"
+
+    /// Visible in Console.app: filter by subsystem = BrowserLink's bundle ID, category "updates".
+    private let updateLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "BrowserLink", category: "updates")
 
     var supportsGentleScheduledUpdateReminders: Bool { true }
 
+    /// Set by the ⌥ "Check for Updates…" test so that check always takes the
+    /// gentle path (arrow + notification), whatever the app's focus state.
+    private var forceGentleReminder = false
+
+    /// True once an update was downloaded automatically and is waiting to be
+    /// installed when BrowserLink quits ("Download Automatically" is on).
+    private var updateReadyToInstall = false
+
+    /// True only while the user is working in one of BrowserLink's own windows.
+    private var userIsInOurWindows: Bool {
+        guard let key = NSApp.keyWindow else { return false }
+        return key === preferencesWindow || key === onboardingWindow
+    }
+
     /// Sparkle asks: "should I pop up the update alert myself?"
-    /// Yes if the user is already using the app, or if the menu bar icon
-    /// is hidden (otherwise they'd never find out about the update).
+    /// Only if the user is already in a BrowserLink window, or the menu bar
+    /// icon is hidden by macOS (otherwise they'd never find out).
+    ///
+    /// Sparkle's own `immediateFocus` is NOT enough: for a menu bar app it is
+    /// true whenever the app is active, which includes the moment after
+    /// clicking its menu, and then no arrow would ever appear.
     func standardUserDriverShouldHandleShowingScheduledUpdate(
         _ update: SUAppcastItem,
         andInImmediateFocus immediateFocus: Bool
     ) -> Bool {
-        // If macOS has hidden our menu bar icon, the gentle "update available"
-        // arrow would never be seen, so let Sparkle show its own alert instead.
-        return immediateFocus || statusItem?.isVisible == false
+        let handle = !forceGentleReminder
+            && ((immediateFocus && userIsInOurWindows) || statusItem?.isVisible == false)
+        updateLog.info("Scheduled check found \(update.displayVersionString, privacy: .public); sparkleImmediateFocus=\(immediateFocus, privacy: .public) inOurWindow=\(self.userIsInOurWindows, privacy: .public) iconVisible=\(self.statusItem?.isVisible ?? false, privacy: .public) -> Sparkle shows its own window: \(handle, privacy: .public)")
+        return handle
     }
 
     func standardUserDriverWillHandleShowingUpdate(
@@ -872,21 +1028,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         forUpdate update: SUAppcastItem,
         state: SPUUserUpdateState
     ) {
+        forceGentleReminder = false
+        updateLog.info("Will handle showing update: sparkleShows=\(handleShowingUpdate, privacy: .public) userInitiated=\(state.userInitiated, privacy: .public)")
         if handleShowingUpdate {
             // Sparkle is showing its own alert: bring it to the front.
             NSApp.activate()
         } else {
-            // Gentle path: just mark the menu bar icon and menu.
+            // Gentle path: mark the menu bar icon and menu, remember the
+            // reminder across launches, and post a notification.
             setUpdateAvailable(true)
+            UserDefaults.standard.set(update.versionString, forKey: Self.pendingUpdateKey)
+            notifyAboutUpdate(update)
         }
     }
 
     func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
+        // An update waiting to install on quit keeps its arrow until it is installed.
+        guard !updateReadyToInstall else { return }
         setUpdateAvailable(false)
+        removeUpdateNotification()
     }
 
     func standardUserDriverWillFinishUpdateSession() {
+        // With automatic downloads the session ends as soon as the update is
+        // downloaded, so don't clear the arrow we just showed.
+        guard !updateReadyToInstall else { return }
         setUpdateAvailable(false)
+        removeUpdateNotification()
     }
 
     private func setUpdateAvailable(_ available: Bool) {
@@ -902,6 +1070,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
             button.imagePosition = .imageLeading
             button.title = available ? "↓" : ""
             button.font = .systemFont(ofSize: 13, weight: .bold)
+            button.toolTip = available ? "BrowserLink: an update is available" : nil
         }
 
         // The icon is square normally, but needs more room for logo + arrow.
@@ -909,7 +1078,163 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
 
         rebuildMenu()
     }
-    
+
+    // MARK: Notification
+
+    /// One notification per version, so a daily check doesn't nag.
+    private func notifyAboutUpdate(_ update: SUAppcastItem, readyToInstall: Bool = false) {
+        let defaults = UserDefaults.standard
+        let build = update.versionString
+        guard defaults.string(forKey: Self.notifiedUpdateKey) != build else { return }
+
+        let version = update.displayVersionString
+        let body = readyToInstall
+            ? "Version \(version) is downloaded. It installs when you quit BrowserLink, or click to restart and install now."
+            : "Version \(version) is ready. Click to review and install."
+        let center = UNUserNotificationCenter.current()
+        let log = updateLog
+        center.requestAuthorization(options: [.alert]) { granted, error in
+            guard granted else {
+                log.info("Notification permission not granted; relying on the menu bar arrow")
+                return
+            }
+            let content = UNMutableNotificationContent()
+            content.title = "A BrowserLink update is available"
+            content.body = body
+            let request = UNNotificationRequest(
+                identifier: AppDelegate.updateNotificationID,
+                content: content,
+                trigger: nil
+            )
+            center.add(request) { error in
+                if error == nil { defaults.set(build, forKey: AppDelegate.notifiedUpdateKey) }
+            }
+        }
+    }
+
+    private func removeUpdateNotification() {
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [Self.updateNotificationID])
+    }
+
+    // MARK: UNUserNotificationCenterDelegate
+
+    /// Show the banner even while BrowserLink is the active app.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list])
+    }
+
+    /// Clicking the notification opens Sparkle's update window.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        if response.notification.request.identifier == Self.updateNotificationID {
+            DispatchQueue.main.async { [weak self] in
+                NSApp.activate()
+                self?.updaterController.checkForUpdates(nil)
+            }
+        }
+        completionHandler()
+    }
+
+    // MARK: Surviving a relaunch
+
+    /// The reminder only lives in memory, and Sparkle's next scheduled check
+    /// can be a day away. So if a reminder was pending when the app last ran
+    /// and we're still on an older build, quietly check again shortly after
+    /// launch; that brings the arrow back through the same gentle path.
+    private func resumePendingUpdateReminder() {
+        let defaults = UserDefaults.standard
+        guard let pending = defaults.string(forKey: Self.pendingUpdateKey) else { return }
+
+        let current = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        guard SUStandardVersionComparator.default.compareVersion(current, toVersion: pending) == .orderedAscending else {
+            defaults.removeObject(forKey: Self.pendingUpdateKey)   // already updated
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            guard let self else { return }
+            let updater = self.updaterController.updater
+            // Respect "Check for Updates Automatically" being switched off.
+            guard updater.automaticallyChecksForUpdates, updater.canCheckForUpdates else { return }
+            self.updateLog.info("Re-checking for the update that was pending at last quit")
+            updater.checkForUpdatesInBackground()
+        }
+    }
+
+    // MARK: Menu item
+
+    /// "Check for Updates…" / "Update Available: Install…". Holding ⌥ runs a
+    /// background-style check instead, which is exactly what a scheduled
+    /// check does, so the gentle reminder path can be tested on demand.
+    @objc private func checkForUpdatesFromMenu() {
+        let updater = updaterController.updater
+        guard updater.canCheckForUpdates else { return }
+        if NSEvent.modifierFlags.contains(.option) {
+            updateLog.info("⌥ check: running a background-style check")
+            forceGentleReminder = true
+            updater.checkForUpdatesInBackground()
+        } else {
+            NSApp.activate()
+            updaterController.checkForUpdates(nil)
+        }
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(checkForUpdatesFromMenu) {
+            return updaterController.updater.canCheckForUpdates
+        }
+        return true
+    }
+
+    // MARK: SPUUpdaterDelegate diagnostics
+
+    func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) {
+        updateLog.info("Downloaded \(item.displayVersionString, privacy: .public)")
+    }
+
+    /// "Download Automatically" is on: Sparkle downloads silently and installs
+    /// on quit, and never asks to "show" the update, so the gentle callbacks
+    /// above don't run. This is the hook for that case. Returning false leaves
+    /// the install-on-quit to Sparkle; we only show the arrow and notification.
+    /// Clicking either runs a normal check, and Sparkle then offers its
+    /// "Install and Relaunch" window for the already-downloaded update.
+    func updater(
+        _ updater: SPUUpdater,
+        willInstallUpdateOnQuit item: SUAppcastItem,
+        immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
+    ) -> Bool {
+        updateLog.info("Update \(item.displayVersionString, privacy: .public) is downloaded and will install on quit")
+        forceGentleReminder = false
+        updateReadyToInstall = true
+        UserDefaults.standard.set(item.versionString, forKey: Self.pendingUpdateKey)
+        setUpdateAvailable(true)
+        notifyAboutUpdate(item, readyToInstall: true)
+        return false
+    }
+
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        updateLog.info("Appcast has a newer version: \(item.displayVersionString, privacy: .public) (build \(item.versionString, privacy: .public))")
+    }
+
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: any Error) {
+        // Nothing newer (or the user skipped it): there is no reminder to keep.
+        forceGentleReminder = false
+        UserDefaults.standard.removeObject(forKey: Self.pendingUpdateKey)
+        updateLog.info("No update to offer: \(error.localizedDescription, privacy: .public)")
+    }
+
+    func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) {
+        forceGentleReminder = false
+        updateLog.error("Update check failed: \(error.localizedDescription, privacy: .public)")
+    }
 }
 
 /// Links waiting for their turn, with protection against apps that spam links.

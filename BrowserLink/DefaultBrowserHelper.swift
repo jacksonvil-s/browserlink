@@ -115,10 +115,8 @@ enum DefaultBrowserHelper {
     /// Opens System Settings directly to the default-browser picker, as a
     /// reliable fallback when the programmatic API fails.
     private static func openSystemSettingsFallback() {
-        // Deep link into the General pane; from macOS 13+ "Desktop & Dock"
-        // holds the default browser picker, but this general anchor works
-        // across versions and gets the user 90% of the way there.
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.general") {
+        // From macOS 13 the default browser picker lives in "Desktop & Dock".
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension") {
             NSWorkspace.shared.open(url)
         }
 
@@ -127,6 +125,8 @@ enum DefaultBrowserHelper {
         alert.informativeText = "macOS didn't allow the automatic prompt this time. In System Settings, go to Desktop & Dock → Default web browser, and choose BrowserLink from the list."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
+        // System Settings was just opened on top; bring the alert in front of it.
+        NSApp.activate()
         alert.runModal()
     }
 }
