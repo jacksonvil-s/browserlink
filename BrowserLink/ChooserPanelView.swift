@@ -164,6 +164,11 @@ struct ChooserPanelView: View {
         return list
     }
 
+    private var isGrid: Bool { settings.chooserLayout == .grid }
+
+    /// Tiles per row in grid layout.
+    private var gridColumns: Int { max(min(browsers.count, 4), 1) }
+
     private func isFocused(_ target: FocusTarget) -> Bool {
         guard let index = focusIndex, targets.indices.contains(index) else { return false }
         return targets[index] == target
@@ -214,7 +219,10 @@ struct ChooserPanelView: View {
         }
         .onPreferenceChange(ChooserHeightKey.self) { height in
             // Two 1pt dividers aren't measured.
-            if height > 50 { onPreferredHeight(height + 2) }
+            // Deferred: resizing the window while SwiftUI is still updating the
+            // view triggers "Publishing changes from within view updates".
+            guard height > 50 else { return }
+            DispatchQueue.main.async { onPreferredHeight(height + 2) }
         }
         .background(glass)
         .overlay(
@@ -541,6 +549,9 @@ struct ChooserPanelView: View {
 
             if showsBrowsers {
                 sectionLabel(showsPreview ? "Or open in" : "Open in")
+                if isGrid {
+                    browserGrid
+                } else {
                 ForEach(Array(browsers.enumerated()), id: \.element.id) { index, browser in
                     ChooserRow(
                         title: browser.name,
@@ -557,6 +568,59 @@ struct ChooserPanelView: View {
                     .id(browser.id)
                     .help(browser.isRecognised ? "" : "BrowserLink doesn't recognise this app as a browser, so links may not open correctly in it.")
                 }
+                }
+            }
+        }
+    }
+
+    /// Icon tiles, up to four across.
+    private var browserGrid: some View {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: gridColumns),
+            spacing: 8
+        ) {
+            ForEach(Array(browsers.enumerated()), id: \.element.id) { index, browser in
+                let focused = isFocused(.browser(index))
+                Button(action: { choose(browser) }) {
+                    VStack(spacing: 8) {
+                        Image(nsImage: browser.icon)
+                            .resizable()
+                            .frame(width: 42, height: 42)
+                        Text(browser.name)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(focused ? settings.tintColor.opacity(0.20) : Color.secondary.opacity(0.06))
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(settings.tintColor.opacity(focused ? 0.7 : 0), lineWidth: 1.5)
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if index < 9 {
+                            KeyHintBadge(key: "\(index + 1)").padding(6)
+                        }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if !browser.isRecognised {
+                            Image(systemName: "questionmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.orange)
+                                .padding(6)
+                                .help("Potentially unsupported: BrowserLink doesn't recognise this app as a browser, so links may not open correctly in it.")
+                                .accessibilityLabel("Potentially unsupported")
+                        }
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(PressDimStyle())
+                .id(browser.id)
+                .accessibilityAddTraits(focused ? .isSelected : [])
             }
         }
     }
@@ -580,7 +644,7 @@ struct ChooserPanelView: View {
 
             HStack(spacing: 14) {
                 if !isLocked {
-                    keyLegend("↑↓", "select")
+                    keyLegend(isGrid && showsBrowsers ? "↑↓←→" : "↑↓", "select")
                     keyLegend("↩", "open")
                 }
                 keyLegend("esc", "dismiss")
@@ -658,16 +722,54 @@ struct ChooserPanelView: View {
     /// from whatever you were typing never opens anything.
     private func moveSelection(_ arrow: KeyCatcher.Arrow) {
         guard !isLocked else { return }
-        let count = targets.count
-        guard count > 0 else { return }
+        let all = targets
+        guard !all.isEmpty else { return }
+
+        guard let index = focusIndex, all.indices.contains(index) else {
+            // First key press: start at the top (down) or bottom (up).
+            switch arrow {
+            case .down, .right: focusIndex = 0
+            case .up, .left: focusIndex = all.count - 1
+            }
+            return
+        }
+
+        if isGrid, case .browser(let b) = all[index] {
+            moveInGrid(from: b, arrow, targets: all, index: index)
+            return
+        }
 
         switch arrow {
         case .down:
-            focusIndex = min((focusIndex ?? -1) + 1, count - 1)
+            // Entering the grid from above lands on its first tile.
+            focusIndex = min(index + 1, all.count - 1)
         case .up:
-            focusIndex = max((focusIndex ?? 1) - 1, 0)
+            focusIndex = max(index - 1, 0)
         case .left, .right:
             break
+        }
+    }
+
+    /// 2-D movement across the tiles; leaves the grid at its top and bottom edges.
+    private func moveInGrid(from b: Int, _ arrow: KeyCatcher.Arrow, targets all: [FocusTarget], index: Int) {
+        let count = browsers.count
+        let columns = gridColumns
+        func focus(browser i: Int) {
+            if let pos = all.firstIndex(of: .browser(i)) { focusIndex = pos }
+        }
+        switch arrow {
+        case .left:
+            if b > 0 { focus(browser: b - 1) }
+        case .right:
+            if b + 1 < count { focus(browser: b + 1) }
+        case .up:
+            if b - columns >= 0 { focus(browser: b - columns) }
+            else if let pos = all.firstIndex(of: .browser(0)), pos > 0 { focusIndex = pos - 1 }  // Quick Preview
+        case .down:
+            let lastRowStart = ((count - 1) / columns) * columns
+            if b + columns < count { focus(browser: b + columns) }
+            else if b < lastRowStart { focus(browser: count - 1) }   // short last row
+            else if all.last == .remember { focusIndex = all.count - 1 }
         }
     }
 

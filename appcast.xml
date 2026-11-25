@@ -3,6 +3,14 @@
     <channel>
         <title>BrowserLink</title>
         <item>
+            <title>1.6.1</title>
+            <pubDate>Wed, 25 Nov 2026 12:31:41 +1100</pubDate>
+            <sparkle:version>17</sparkle:version>
+            <sparkle:shortVersionString>1.6.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://raw.githubusercontent.com/jacksonvil-s/browserlink/main/releases/v1.6.1/BrowserLink-v1.6.1.zip" length="2253380" type="application/octet-stream" sparkle:edSignature="A2fTR/HfGvZmuGG+piyqzfhoEb86CIAXiMU5jvq7spxP6Gj2pVzAquN14hhwZaovkhcWfKxf4zWGez4ZMKrdDQ=="/>
+        </item>
+        <item>
             <title>1.6.0</title>
             <pubDate>Wed, 18 Nov 2026 20:59:41 +1100</pubDate>
             <sparkle:version>16</sparkle:version>

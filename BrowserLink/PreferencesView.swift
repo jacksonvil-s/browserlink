@@ -33,13 +33,13 @@ struct PreferencesView: View {
     var body: some View {
         NavigationSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 190, ideal: 200, max: 240)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
         } detail: {
             detail
                 .navigationTitle(currentTab.title)
         }
         .tint(settings.tintColor)
-        .frame(minWidth: 700, minHeight: 480)
+        .frame(minWidth: 860, minHeight: 620)
         .onAppear {
             // Catches the case where the user changed the login-item state
             // from outside the app (System Settings → General → Login Items).
@@ -84,6 +84,8 @@ struct PreferencesView: View {
             GeneralPane(settings: settings, onRestartOnboarding: onRestartOnboarding)
         case .browsers:
             BrowsersPane(settings: settings, onSetDefaultBrowser: onSetDefaultBrowser)
+        case .chooser:
+            ChooserPane(settings: settings)
         case .links:
             LinksPane(settings: settings)
         case .preview:
@@ -103,7 +105,7 @@ struct PreferencesView: View {
 // MARK: - Tabs
 
 private enum PreferencesTab: String, CaseIterable, Identifiable, Hashable {
-    case general, browsers, links, preview, appearance, security, updates, about
+    case general, browsers, chooser, links, preview, appearance, security, updates, about
 
     var id: String { rawValue }
 
@@ -111,6 +113,7 @@ private enum PreferencesTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .general: return "General"
         case .browsers: return "Browsers"
+        case .chooser: return "Chooser"
         case .links: return "Links"
         case .preview: return "Quick Preview"
         case .appearance: return "Appearance"
@@ -124,6 +127,7 @@ private enum PreferencesTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .general: return "gearshape.fill"
         case .browsers: return "globe"
+        case .chooser: return "rectangle.grid.1x2.fill"
         case .links: return "link"
         case .preview: return "eye.fill"
         case .appearance: return "paintpalette.fill"
@@ -137,6 +141,7 @@ private enum PreferencesTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .general: return .gray
         case .browsers: return .blue
+        case .chooser: return .cyan
         case .links: return .teal
         case .preview: return .purple
         case .appearance: return .pink
@@ -163,31 +168,86 @@ private struct SidebarIcon: View {
 
 // MARK: - Row building blocks
 
-/// A switch with an optional grey explanation underneath.
+/// Small white symbol on a coloured rounded square, like the sidebar icons.
+private struct RowIcon: View {
+    let symbol: String
+    let tint: Color
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 22, height: 22)
+            .background(RoundedRectangle(cornerRadius: 5.5, style: .continuous).fill(tint.gradient))
+            .accessibilityHidden(true)
+    }
+}
+
+/// An icon and a title, for pickers and other rows that aren't switches.
+private struct RowLabel: View {
+    let title: String
+    let symbol: String
+    var tint: Color = .gray
+
+    init(_ title: String, symbol: String, tint: Color = .gray) {
+        self.title = title
+        self.symbol = symbol
+        self.tint = tint
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            RowIcon(symbol: symbol, tint: tint)
+            Text(title)
+        }
+    }
+}
+
+/// A switch with an optional icon and an optional grey explanation underneath.
 private struct SettingToggle: View {
     let title: String
+    let symbol: String?
+    let tint: Color
     let subtitle: String?
     @Binding var isOn: Bool
 
-    init(_ title: String, subtitle: String? = nil, isOn: Binding<Bool>) {
+    init(_ title: String, symbol: String? = nil, tint: Color = .gray, subtitle: String? = nil, isOn: Binding<Bool>) {
         self.title = title
+        self.symbol = symbol
+        self.tint = tint
         self.subtitle = subtitle
         self._isOn = isOn
     }
 
     var body: some View {
         Toggle(isOn: $isOn) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                if let symbol {
+                    RowIcon(symbol: symbol, tint: tint)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }
         .toggleStyle(.switch)
+        .padding(.vertical, 4)
+    }
+}
+
+/// More breathing room around grouped forms and between their rows.
+private extension View {
+    func roomyForm() -> some View {
+        self
+            .contentMargins(.horizontal, 28, for: .scrollContent)
+            .contentMargins(.vertical, 20, for: .scrollContent)
+            .environment(\.defaultMinListRowHeight, 36)
     }
 }
 
@@ -231,14 +291,16 @@ private struct GeneralPane: View {
     var body: some View {
         Form {
             Section("Startup") {
-                SettingToggle("Launch at Login", isOn: $settings.launchAtLoginEnabled)
+                SettingToggle("Launch at Login", symbol: "power.circle.fill", tint: .green, isOn: $settings.launchAtLoginEnabled)
             }
 
             Section {
-                Picker("When a link opens", selection: $settings.appMode) {
+                Picker(selection: $settings.appMode) {
                     ForEach(AppMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
+                        Label(mode.label, systemImage: mode.icon).tag(mode)
                     }
+                } label: {
+                    RowLabel("When a link opens", symbol: "cursorarrow.click.2", tint: .blue)
                 }
             } header: {
                 Text("Mode")
@@ -246,31 +308,83 @@ private struct GeneralPane: View {
                 Text(settings.appMode.explanation)
             }
 
+            Section("Help") {
+                Button(action: onRestartOnboarding) {
+                    Label("Restart Onboarding…", systemImage: "sparkles.rectangle.stack")
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .roomyForm()
+    }
+}
+
+// MARK: - Chooser
+
+private struct ChooserPane: View {
+    @ObservedObject var settings: AppSettings
+
+    var body: some View {
+        Form {
             Section {
-                SettingToggle("Play Sound When Chooser Appears", isOn: $settings.playSoundOnChooserAppear)
-
-                SettingToggle(
-                    "Show Site Icons in Chooser",
-                    subtitle: "Off by default. Fetched from Google's favicon service, so Google sees the sites you open. Never used for links with warnings, IP addresses or local network names.",
-                    isOn: $settings.showFaviconsInChooser
-                )
-
-                Picker("Show Chooser On", selection: $settings.chooserScreen) {
-                    ForEach(ChooserScreen.allCases) { screen in
-                        Text(screen.label).tag(screen)
+                Picker(selection: $settings.chooserLayout) {
+                    ForEach(ChooserLayout.allCases) { layout in
+                        Label(layout.label, systemImage: layout.icon).tag(layout)
                     }
+                } label: {
+                    RowLabel("Browser layout", symbol: "square.grid.2x2.fill", tint: .indigo)
+                }
+                .pickerStyle(.segmented)
+                .disabled(settings.appMode == .preview)
+
+                Picker(selection: $settings.chooserSize) {
+                    ForEach(ChooserSize.allCases) { size in
+                        Label(size.label, systemImage: size.icon).tag(size)
+                    }
+                } label: {
+                    RowLabel("Window size", symbol: "arrow.up.left.and.arrow.down.right", tint: .cyan)
                 }
             } header: {
-                Text("Chooser")
+                Text("Look")
+            } footer: {
+                Text(settings.appMode == .preview
+                     ? "The layout isn't used while the mode is \"\(AppMode.preview.label)\". \(settings.chooserLayout.explanation)"
+                     : settings.chooserLayout.explanation + " The size changes the real size of the window, not the text.")
+            }
+
+            Section {
+                Picker(selection: $settings.chooserScreen) {
+                    ForEach(ChooserScreen.allCases) { screen in
+                        Label(screen.label, systemImage: screen.icon).tag(screen)
+                    }
+                } label: {
+                    RowLabel("Show chooser on", symbol: "display", tint: .blue)
+                }
+            } header: {
+                Text("Position")
             } footer: {
                 Text(settings.chooserScreen.explanation)
             }
 
-            Section("Onboarding") {
-                Button("Restart Onboarding…", action: onRestartOnboarding)
+            Section("Details") {
+                SettingToggle(
+                    "Show Site Icons",
+                    symbol: "globe.americas.fill",
+                    tint: .teal,
+                    subtitle: "Off by default. Fetched from Google's favicon service, so Google sees the sites you open. Never used for links with warnings, IP addresses or local network names.",
+                    isOn: $settings.showFaviconsInChooser
+                )
+
+                SettingToggle(
+                    "Play Sound When Chooser Appears",
+                    symbol: "speaker.wave.2.fill",
+                    tint: .pink,
+                    isOn: $settings.playSoundOnChooserAppear
+                )
             }
         }
         .formStyle(.grouped)
+        .roomyForm()
     }
 }
 
@@ -309,7 +423,9 @@ private struct BrowsersPane: View {
         Form {
             Section {
                 DefaultBrowserStatusLabel()
-                Button("Set as Default Browser…", action: onSetDefaultBrowser)
+                Button(action: onSetDefaultBrowser) {
+                    Label("Set as Default Browser…", systemImage: "checkmark.seal.fill")
+                }
             } header: {
                 Text("Default Browser")
             } footer: {
@@ -332,9 +448,11 @@ private struct BrowsersPane: View {
                 .environment(\.defaultMinListRowHeight, rowHeight)
                 .frame(height: CGFloat(browsers.count) * rowHeight + 8)
 
-                Button("Reset to Default Order") {
+                Button {
                     AppSettings.shared.browserOrder = []
                     browsers = BrowserDetector.ordered(BrowserDetector.installedBrowsers(), by: [])
+                } label: {
+                    Label("Reset to Default Order", systemImage: "arrow.counterclockwise")
                 }
             } header: {
                 Text("Display Order")
@@ -349,6 +467,7 @@ private struct BrowsersPane: View {
             .disabled(settings.appMode == .preview)
         }
         .formStyle(.grouped)
+        .roomyForm()
         .onAppear {
             browsers = BrowserDetector.ordered(
                 BrowserDetector.installedBrowsers(),
@@ -407,11 +526,15 @@ private struct LinksPane: View {
             Section {
                 SettingToggle(
                     "Remove Tracking Parameters",
+                    symbol: "wand.and.stars",
+                    tint: .purple,
                     subtitle: "Strips things like utm_source and fbclid from links before they open. The chooser tells you when it did, and lets you use the original.",
                     isOn: $settings.stripTrackingParameters
                 )
                 SettingToggle(
                     "Skip Redirect Wrappers",
+                    symbol: "arrow.triangle.turn.up.right.diamond.fill",
+                    tint: .orange,
                     subtitle: "Opens the real destination of links wrapped by Google, Facebook, Instagram, LinkedIn, YouTube, Slack and similar. Security scanners such as Outlook Safe Links are left alone.",
                     isOn: $settings.unwrapRedirectLinks
                 )
@@ -422,11 +545,15 @@ private struct LinksPane: View {
             Section {
                 SettingToggle(
                     "Remember Per-Site Choices",
+                    symbol: "pin.fill",
+                    tint: .blue,
                     subtitle: "Skip the chooser for sites you've picked a browser for. Links with safety warnings always show it. Hold ⌥ as a link opens to see it anyway (some apps use ⌥-click for their own purposes).",
                     isOn: $settings.rememberPerSiteChoices
                 )
                 SettingToggle(
                     "Pause Remembered Sites",
+                    symbol: "pause.circle.fill",
+                    tint: .gray,
                     subtitle: "Show the chooser for every link for now. Resets when BrowserLink restarts. Also in the menu bar.",
                     isOn: $settings.pauseSiteRules
                 )
@@ -447,8 +574,10 @@ private struct LinksPane: View {
                     ForEach(filteredSiteRules, id: \.site) { rule in
                         siteRuleRow(site: rule.site, browserID: rule.browserID)
                     }
-                    Button("Forget All", role: .destructive) {
+                    Button(role: .destructive) {
                         settings.siteRules = [:]
+                    } label: {
+                        Label("Forget All", systemImage: "trash")
                     }
                 }
             } header: {
@@ -458,12 +587,16 @@ private struct LinksPane: View {
             Section {
                 SettingToggle(
                     "Keep a Recent Links List",
+                    symbol: "clock.arrow.circlepath",
+                    tint: .teal,
                     subtitle: "Adds a Recent Links menu to the menu bar for reopening a link you dismissed by accident. Kept in memory only, never saved, and cleared when BrowserLink quits.",
                     isOn: $settings.keepRecentLinks
                 )
 
-                Button("Open Link from Clipboard…") {
+                Button {
                     NotificationCenter.default.post(name: .openClipboardLinkRequested, object: nil)
+                } label: {
+                    Label("Open Link from Clipboard…", systemImage: "doc.on.clipboard")
                 }
 
                 if settings.keepRecentLinks {
@@ -478,8 +611,10 @@ private struct LinksPane: View {
                             }
                             .buttonStyle(.link)
                         }
-                        Button("Clear Recent Links", role: .destructive) {
+                        Button(role: .destructive) {
                             recentLinks.clear()
+                        } label: {
+                            Label("Clear Recent Links", systemImage: "trash")
                         }
                     }
                 }
@@ -490,6 +625,7 @@ private struct LinksPane: View {
             }
         }
         .formStyle(.grouped)
+        .roomyForm()
         .onAppear {
             browsers = BrowserDetector.installedBrowsers()
         }
@@ -538,6 +674,8 @@ private struct QuickPreviewPane: View {
             Section {
                 SettingToggle(
                     "Allow JavaScript",
+                    symbol: "curlybraces",
+                    tint: .yellow,
                     subtitle: "Turning this off is safer but some pages won't work. You can also switch it per preview with the JS button in the preview window.",
                     isOn: $settings.previewJavaScriptEnabled
                 )
@@ -550,12 +688,15 @@ private struct QuickPreviewPane: View {
             Section("Downloads") {
                 SettingToggle(
                     "Reveal Downloads in Finder",
+                    symbol: "folder.fill",
+                    tint: .blue,
                     subtitle: "After a file finishes saving from Quick Preview.",
                     isOn: $settings.revealDownloadsInFinder
                 )
             }
         }
         .formStyle(.grouped)
+        .roomyForm()
     }
 }
 
@@ -574,9 +715,13 @@ private struct AppearancePane: View {
     var body: some View {
         Form {
             Section {
-                ColorPicker("Interface Colour", selection: colorBinding, supportsOpacity: false)
-                Button("Use System Colour") {
+                ColorPicker(selection: colorBinding, supportsOpacity: false) {
+                    RowLabel("Interface Colour", symbol: "paintpalette.fill", tint: .pink)
+                }
+                Button {
                     settings.interfaceColour = ""
+                } label: {
+                    Label("Use System Colour", systemImage: "arrow.uturn.backward")
                 }
                 .disabled(settings.interfaceColour.isEmpty)
             } header: {
@@ -586,6 +731,7 @@ private struct AppearancePane: View {
             }
         }
         .formStyle(.grouped)
+        .roomyForm()
     }
 }
 
@@ -599,14 +745,28 @@ private struct SecurityPane: View {
             Section {
                 SettingToggle(
                     "Warn About Suspicious Links",
+                    symbol: "checkmark.shield.fill",
+                    tint: .green,
                     subtitle: "Shows a warning when a link trips any check below. Serious and warning-level ones ask you to confirm first.",
                     isOn: $settings.warnAboutSuspiciousLinks
                 )
+
+                SettingToggle(
+                    "Pause Before Confirming",
+                    symbol: "hourglass",
+                    tint: .orange,
+                    subtitle: "Waits 3 seconds before you can click \"I understand the risk\" on a serious warning, to give you time to reconsider.",
+                    isOn: $settings.delaySevereConfirm
+                )
+                .dimmed(unless: settings.warnAboutSuspiciousLinks)
+
             }
 
             Section {
                 SettingToggle(
                     "Dangerous Link Types",
+                    symbol: "exclamationmark.triangle.fill",
+                    tint: .red,
                     subtitle: "Flags javascript:, data: and file: links, which can run code or read files on your Mac.",
                     isOn: $settings.flagDangerousSchemes
                 )
@@ -614,6 +774,8 @@ private struct SecurityPane: View {
 
                 SettingToggle(
                     "Fake Brand Look-alikes",
+                    symbol: "theatermasks.fill",
+                    tint: .red,
                     subtitle: "Flags domains that imitate well-known brands, like paypal-login.com. Strong matches are serious; weaker ones show as a warning or a small notice.",
                     isOn: $settings.flagBrandLookalikes
                 )
@@ -621,17 +783,13 @@ private struct SecurityPane: View {
 
                 SettingToggle(
                     "Fake \"@\" Usernames",
+                    symbol: "at",
+                    tint: .red,
                     subtitle: "Flags links like paypal.com@evil-site.xyz, where the real destination is hidden after the @.",
                     isOn: $settings.flagAtSignTrick
                 )
                 .dimmed(unless: settings.warnAboutSuspiciousLinks)
 
-                SettingToggle(
-                    "Pause Before Confirming",
-                    subtitle: "Waits 3 seconds before you can click \"I understand the risk\" on a serious warning, to give you time to reconsider.",
-                    isOn: $settings.delaySevereConfirm
-                )
-                .dimmed(unless: settings.warnAboutSuspiciousLinks)
             } header: {
                 SeverityHeader(level: .serious, title: "Serious", detail: "Almost certainly an attempt to trick or harm you.")
             }
@@ -639,6 +797,8 @@ private struct SecurityPane: View {
             Section {
                 SettingToggle(
                     "Raw IP Address Links",
+                    symbol: "number",
+                    tint: .orange,
                     subtitle: "Links that use numbers (including disguised forms like 0x7f000001) instead of a website name. Addresses on your own network only show a small notice.",
                     isOn: $settings.flagRawIPLinks
                 )
@@ -646,6 +806,8 @@ private struct SecurityPane: View {
 
                 SettingToggle(
                     "Mixed-Script (Homograph) Domains",
+                    symbol: "character.book.closed.fill",
+                    tint: .orange,
                     subtitle: "Flags domains mixing alphabets, e.g. Latin + Cyrillic look-alikes.",
                     isOn: $settings.flagMixedScriptDomains
                 )
@@ -653,6 +815,8 @@ private struct SecurityPane: View {
 
                 SettingToggle(
                     "Punycode Domains",
+                    symbol: "textformat.abc",
+                    tint: .orange,
                     subtitle: "Domains starting with xn--, which can disguise look-alike characters.",
                     isOn: $settings.flagPunycodeDomains
                 )
@@ -660,6 +824,8 @@ private struct SecurityPane: View {
 
                 SettingToggle(
                     "Program & Installer Downloads",
+                    symbol: "arrow.down.app.fill",
+                    tint: .orange,
                     subtitle: "Flags links that end in .exe, .dmg, .pkg and similar.",
                     isOn: $settings.flagDownloadLinks
                 )
@@ -671,6 +837,8 @@ private struct SecurityPane: View {
             Section {
                 SettingToggle(
                     "Unusually Deep Subdomains",
+                    symbol: "list.bullet.indent",
+                    tint: .blue,
                     subtitle: "Domains made of six or more dot-separated parts, like a.b.c.d.example.com.",
                     isOn: $settings.flagDeepSubdomains
                 )
@@ -678,6 +846,8 @@ private struct SecurityPane: View {
 
                 SettingToggle(
                     "Unencrypted (http) Links",
+                    symbol: "lock.open.fill",
+                    tint: .blue,
                     subtitle: "Flags links that use http:// instead of https://. Some older sites still use http, so you may switch this off.",
                     isOn: $settings.flagInsecureHTTP
                 )
@@ -685,6 +855,8 @@ private struct SecurityPane: View {
 
                 SettingToggle(
                     "Shortened Links",
+                    symbol: "link.badge.plus",
+                    tint: .blue,
                     subtitle: "Shows a gentle notice for links from services like bit.ly that hide where they lead.",
                     isOn: $settings.flagURLShorteners
                 )
@@ -694,6 +866,7 @@ private struct SecurityPane: View {
             }
         }
         .formStyle(.grouped)
+        .roomyForm()
     }
 }
 
@@ -723,7 +896,7 @@ private struct UpdatesPane: View {
     var body: some View {
         Form {
             Section("Automatic Updates") {
-                SettingToggle("Check for Updates Automatically", isOn: $automaticallyChecksForUpdates)
+                SettingToggle("Check for Updates Automatically", symbol: "arrow.triangle.2.circlepath", tint: .orange, isOn: $automaticallyChecksForUpdates)
                     .onChange(of: automaticallyChecksForUpdates) { _, newValue in
                         updater.automaticallyChecksForUpdates = newValue
                         // Downloading automatically only makes sense if
@@ -734,17 +907,19 @@ private struct UpdatesPane: View {
                         }
                     }
 
-                Picker("Frequency", selection: $checkFrequency) {
+                Picker(selection: $checkFrequency) {
                     ForEach(CheckFrequency.allCases) { frequency in
-                        Text(frequency.label).tag(frequency)
+                        Label(frequency.label, systemImage: frequency.icon).tag(frequency)
                     }
+                } label: {
+                    RowLabel("Frequency", symbol: "clock.fill", tint: .blue)
                 }
                 .disabled(!automaticallyChecksForUpdates)
                 .onChange(of: checkFrequency) { _, newValue in
                     updater.updateCheckInterval = newValue.seconds
                 }
 
-                SettingToggle("Download Automatically", isOn: $automaticallyDownloadsUpdates)
+                SettingToggle("Download Automatically", symbol: "arrow.down.circle.fill", tint: .green, isOn: $automaticallyDownloadsUpdates)
                     .disabled(!automaticallyChecksForUpdates)
                     .onChange(of: automaticallyDownloadsUpdates) { _, newValue in
                         updater.automaticallyDownloadsUpdates = newValue
@@ -752,10 +927,12 @@ private struct UpdatesPane: View {
             }
 
             Section {
-                Picker("Update Channel", selection: $settings.updateChannel) {
+                Picker(selection: $settings.updateChannel) {
                     ForEach(UpdateChannel.allCases) { channel in
-                        Text(channel.label).tag(channel)
+                        Label(channel.label, systemImage: channel.icon).tag(channel)
                     }
+                } label: {
+                    RowLabel("Update Channel", symbol: "flask.fill", tint: .purple)
                 }
             } header: {
                 Text("Channel")
@@ -778,12 +955,15 @@ private struct UpdatesPane: View {
                             .disabled(true)
                     }
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Share Anonymous System Info")
-                        Text("Would help decide which macOS versions and Mac models to keep supporting. No personal data included.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 10) {
+                        RowIcon(symbol: "chart.bar.xaxis", tint: .gray)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Share Anonymous System Info")
+                            Text("Would help decide which macOS versions and Mac models to keep supporting. No personal data included.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             } header: {
@@ -791,8 +971,10 @@ private struct UpdatesPane: View {
             }
 
             Section {
-                Button("Check for Updates…") {
+                Button {
                     updater.checkForUpdates()
+                } label: {
+                    Label("Check for Updates…", systemImage: "arrow.clockwise")
                 }
                 .disabled(!updateChecker.canCheckForUpdates)
 
@@ -808,6 +990,7 @@ private struct UpdatesPane: View {
             }
         }
         .formStyle(.grouped)
+        .roomyForm()
     }
 }
 
@@ -902,6 +1085,14 @@ private enum CheckFrequency: CaseIterable, Identifiable, Hashable {
         case .hourly: return 3600
         case .daily: return 86400
         case .weekly: return 604800
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .hourly: return "clock"
+        case .daily: return "sun.max"
+        case .weekly: return "calendar"
         }
     }
 

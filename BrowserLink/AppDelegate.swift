@@ -447,7 +447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         )
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 580),
+            contentRect: NSRect(x: 0, y: 0, width: 980, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -457,9 +457,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         hosting.sizingOptions = []
         window.contentViewController = hosting
         
-        hosting.view.frame = NSRect(x: 0, y: 0, width: 800, height: 580)
-        window.setContentSize(NSSize(width: 800, height: 580))
-        window.minSize = NSSize(width: 700, height: 480)
+        hosting.view.frame = NSRect(x: 0, y: 0, width: 980, height: 720)
+        window.setContentSize(NSSize(width: 980, height: 720))
+        // The smallest the window can be dragged to. contentMinSize limits the
+        // content area itself, so the sidebar and panes always have room.
+        window.contentMinSize = NSSize(width: 860, height: 620)
+        window.minSize = NSSize(width: 860, height: 620)
         window.toolbarStyle = .unified
         
         window.title = "BrowserLink Preferences"
@@ -707,8 +710,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let screenFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         // The width is fixed; the height is only a starting guess. The view
         // reports the height it really needs and resizeChooser(…) applies it.
-        let panelWidth = min(max(screenFrame.width * 0.30, 520), 580)
-        let panelHeight: CGFloat = 380
+        // Width comes from the chosen size (Small…Very Large), never wider
+        // than the screen. Text and icons keep their normal size.
+        let panelWidth = min(AppSettings.shared.chooserSize.width, screenFrame.width * 0.95)
+        let panelHeight: CGFloat = max(380, screenFrame.height * AppSettings.shared.chooserSize.minHeightFraction)
         
         // ChooserPanel (see ChooserPanelView.swift) is a non-activating panel
         // that can still take keyboard focus.
@@ -819,8 +824,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private func resizeChooser(toContentHeight height: CGFloat) {
         guard let panel = chooserPanel else { return }
         let visible = (panel.screen ?? targetScreen())?.visibleFrame
-        let maxHeight = (visible?.height ?? 900) * 0.72
-        chooserPreferredHeight = min(max(height, 200), maxHeight)
+        let size = AppSettings.shared.chooserSize
+        let screenHeight = visible?.height ?? 900
+        let maxHeight = screenHeight * size.maxHeightFraction
+        let minHeight = max(200, screenHeight * size.minHeightFraction)
+        chooserPreferredHeight = min(max(height, minHeight), maxHeight)
         if !chooserAnimatingIn {
             applyChooserHeight(animated: true)
         }
@@ -1030,31 +1038,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     ) {
         forceGentleReminder = false
         updateLog.info("Will handle showing update: sparkleShows=\(handleShowingUpdate, privacy: .public) userInitiated=\(state.userInitiated, privacy: .public)")
+        // The arrow shows whenever an update is found, whether Sparkle opens
+        // its own window or not. It then stays until the update is installed,
+        // skipped, or no longer offered, so "Remind Me Later" keeps it.
+        setUpdateAvailable(true)
+        UserDefaults.standard.set(update.versionString, forKey: Self.pendingUpdateKey)
+
         if handleShowingUpdate {
             // Sparkle is showing its own alert: bring it to the front.
             NSApp.activate()
         } else {
-            // Gentle path: mark the menu bar icon and menu, remember the
-            // reminder across launches, and post a notification.
-            setUpdateAvailable(true)
-            UserDefaults.standard.set(update.versionString, forKey: Self.pendingUpdateKey)
+            // Gentle path: no window, so also post a notification.
             notifyAboutUpdate(update)
         }
     }
 
     func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
-        // An update waiting to install on quit keeps its arrow until it is installed.
-        guard !updateReadyToInstall else { return }
-        setUpdateAvailable(false)
+        // The user has seen it, so the notification can go. The arrow stays.
         removeUpdateNotification()
     }
 
     func standardUserDriverWillFinishUpdateSession() {
-        // With automatic downloads the session ends as soon as the update is
-        // downloaded, so don't clear the arrow we just showed.
-        guard !updateReadyToInstall else { return }
-        setUpdateAvailable(false)
+        // Deliberately NOT clearing the arrow here: this also runs for
+        // "Remind Me Later" and right after an automatic download, when the
+        // update is still waiting. See clearUpdateReminder().
+    }
+
+    /// The update is no longer waiting: skipped, or Sparkle no longer offers it.
+    private func clearUpdateReminder() {
+        updateReadyToInstall = false
+        UserDefaults.standard.removeObject(forKey: Self.pendingUpdateKey)
         removeUpdateNotification()
+        if updateIsAvailable { setUpdateAvailable(false) }
     }
 
     private func setUpdateAvailable(_ available: Bool) {
@@ -1196,6 +1211,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     // MARK: SPUUpdaterDelegate diagnostics
 
+    /// What the user chose in Sparkle's window. "Skip This Version" ends the
+    /// reminder; "Install" and "Remind Me Later" keep the arrow.
+    func updater(
+        _ updater: SPUUpdater,
+        userDidMake choice: SPUUserUpdateChoice,
+        forUpdate updateItem: SUAppcastItem,
+        state: SPUUserUpdateState
+    ) {
+        updateLog.info("User chose \(String(describing: choice), privacy: .public) for \(updateItem.displayVersionString, privacy: .public)")
+        if choice == .skip { clearUpdateReminder() }
+    }
+
     func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) {
         updateLog.info("Downloaded \(item.displayVersionString, privacy: .public)")
     }
@@ -1227,7 +1254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: any Error) {
         // Nothing newer (or the user skipped it): there is no reminder to keep.
         forceGentleReminder = false
-        UserDefaults.standard.removeObject(forKey: Self.pendingUpdateKey)
+        clearUpdateReminder()
         updateLog.info("No update to offer: \(error.localizedDescription, privacy: .public)")
     }
 

@@ -256,7 +256,7 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("A few starting preferences")
                     .font(.system(size: 20, weight: .semibold))
-                Text("You can change any of these later in Preferences. There are even more customisation options in preferences!")
+                Text("These are the most useful options. You can change any of them later in Preferences, which has many more.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
@@ -264,44 +264,105 @@ struct OnboardingView: View {
             OnboardingCard(title: "Startup") {
                 onboardingToggleRow(
                     title: "Launch at Login",
+                    symbol: "power.circle.fill",
+                    tint: .green,
                     isOn: $settings.launchAtLoginEnabled
                 )
             }
-            
+
             OnboardingCard(title: "Chooser") {
-                onboardingToggleRow(
-                    title: "Show Site Icons in Chooser",
-                    subtitle: "Off by default. Fetched from Google's favicon service, so Google sees the sites you open. Never used for links with warnings.",
-                    isOn: $settings.showFaviconsInChooser
-                )
+                if settings.appMode != .preview {
+                    onboardingPickerRow(title: "Browser layout", symbol: "square.grid.2x2.fill", tint: .indigo) {
+                        Picker("", selection: $settings.chooserLayout) {
+                            ForEach(ChooserLayout.allCases) { layout in
+                                Label(layout.label, systemImage: layout.icon).tag(layout)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                    Divider().opacity(0.5).padding(.leading, 14)
+                }
+                onboardingPickerRow(title: "Window size", symbol: "arrow.up.left.and.arrow.down.right", tint: .cyan) {
+                    Picker("", selection: $settings.chooserSize) {
+                        ForEach(ChooserSize.allCases) { size in
+                            Label(size.label, systemImage: size.icon).tag(size)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
                 Divider().opacity(0.5).padding(.leading, 14)
                 onboardingToggleRow(
                     title: "Play Sound When Chooser Appears",
+                    symbol: "speaker.wave.2.fill",
+                    tint: .pink,
                     isOn: $settings.playSoundOnChooserAppear
                 )
+                Divider().opacity(0.5).padding(.leading, 14)
+                onboardingToggleRow(
+                    title: "Show Site Icons",
+                    subtitle: "Off by default. Fetched from Google's favicon service, so Google sees the sites you open. Never used for links with warnings.",
+                    symbol: "globe.americas.fill",
+                    tint: .teal,
+                    isOn: $settings.showFaviconsInChooser
+                )
             }
-            
+
+            OnboardingCard(title: "Links") {
+                onboardingToggleRow(
+                    title: "Remove Tracking Parameters",
+                    subtitle: "Strips things like utm_source and fbclid before a link opens. The chooser tells you when it did.",
+                    symbol: "wand.and.stars",
+                    tint: .purple,
+                    isOn: $settings.stripTrackingParameters
+                )
+                Divider().opacity(0.5).padding(.leading, 14)
+                onboardingToggleRow(
+                    title: "Skip Redirect Wrappers",
+                    subtitle: "Opens the real destination of links wrapped by Google, Facebook, LinkedIn and similar.",
+                    symbol: "arrow.triangle.turn.up.right.diamond.fill",
+                    tint: .orange,
+                    isOn: $settings.unwrapRedirectLinks
+                )
+                Divider().opacity(0.5).padding(.leading, 14)
+                onboardingToggleRow(
+                    title: "Remember Per-Site Choices",
+                    subtitle: "Tick \"Remember my choice\" in the chooser to skip it next time for that site. Links with warnings always show it.",
+                    symbol: "pin.fill",
+                    tint: .blue,
+                    isOn: $settings.rememberPerSiteChoices
+                )
+            }
+
             OnboardingCard(title: "Security") {
                 onboardingToggleRow(
                     title: "Warn About Suspicious Links",
                     subtitle: "We recommend that you keep this option on to protect yourself against malicious links. This process runs entirely on device, but this is not a catch all. Not to be a replacement for a high vigilance while surfing the web.",
+                    symbol: "checkmark.shield.fill",
+                    tint: .green,
                     isOn: $settings.warnAboutSuspiciousLinks
                 )
-                
+
                 Divider().opacity(0.5).padding(.leading, 14)
                 onboardingToggleRow(
                     title: "Warn About Unencrypted (http) Links",
                     subtitle: "Flags links that use http:// instead of https://, which aren't encrypted. Only works while the suspicious link warning above is on.",
+                    symbol: "lock.open.fill",
+                    tint: .blue,
                     isOn: $settings.flagInsecureHTTP
                 )
                 .opacity(settings.warnAboutSuspiciousLinks ? 1 : 0.4)
                 .disabled(!settings.warnAboutSuspiciousLinks)
             }
-            
+
             OnboardingCard(title: "Updates") {
                 onboardingToggleRow(
                     title: "Check for Updates Automatically",
                     subtitle: "BrowserLink checks for new versions in the background and lets you know when one is ready. You can change this any time in Preferences → Updates.",
+                    symbol: "arrow.triangle.2.circlepath",
+                    tint: .orange,
                     isOn: $automaticUpdateChecks
                 )
             }
@@ -365,8 +426,26 @@ struct OnboardingView: View {
         }
     }
     
-    private func onboardingToggleRow(title: String, subtitle: String? = nil, isOn: Binding<Bool>) -> some View {
+    private func onboardingIcon(_ symbol: String, _ tint: Color) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 24, height: 24)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(tint.gradient))
+            .accessibilityHidden(true)
+    }
+
+    private func onboardingToggleRow(
+        title: String,
+        subtitle: String? = nil,
+        symbol: String? = nil,
+        tint: Color = .gray,
+        isOn: Binding<Bool>
+    ) -> some View {
         HStack(alignment: .top, spacing: 12) {
+            if let symbol {
+                onboardingIcon(symbol, tint)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.system(size: 13.5))
                 if let subtitle {
@@ -384,7 +463,23 @@ struct OnboardingView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
     }
-    
+
+    private func onboardingPickerRow<Control: View>(
+        title: String,
+        symbol: String,
+        tint: Color,
+        @ViewBuilder control: () -> Control
+    ) -> some View {
+        HStack(spacing: 12) {
+            onboardingIcon(symbol, tint)
+            Text(title).font(.system(size: 13.5))
+            Spacer(minLength: 8)
+            control()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
     // MARK: - Footer / navigation
     
     private var footer: some View {

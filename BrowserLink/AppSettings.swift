@@ -109,6 +109,16 @@ final class AppSettings: ObservableObject {
         didSet { persist(newValue: appMode.rawValue, oldValue: oldValue.rawValue, key: Keys.appMode) }
     }
 
+    /// How the browsers are laid out in the chooser (list or grid).
+    @Published var chooserLayout: ChooserLayout {
+        didSet { persist(newValue: chooserLayout.rawValue, oldValue: oldValue.rawValue, key: Keys.chooserLayout) }
+    }
+
+    /// Overall size of the chooser window.
+    @Published var chooserSize: ChooserSize {
+        didSet { persist(newValue: chooserSize.rawValue, oldValue: oldValue.rawValue, key: Keys.chooserSize) }
+    }
+
     /// Plays a short sound when the chooser panel appears.
     @Published var playSoundOnChooserAppear: Bool {
         didSet { persist(newValue: playSoundOnChooserAppear, oldValue: oldValue, key: Keys.playSoundOnChooserAppear) }
@@ -244,6 +254,8 @@ final class AppSettings: ObservableObject {
         static let flagURLShorteners = "flagURLShorteners"
         static let delaySevereConfirm = "delaySevereConfirm"
         static let appMode = "appMode"
+        static let chooserLayout = "chooserLayout"
+        static let chooserSize = "chooserSize"
         static let shareAnonymousSystemInfo = "shareAnonymousSystemInfo"
         static let updateChannel = "updateChannel"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
@@ -295,6 +307,8 @@ final class AppSettings: ObservableObject {
         flagURLShorteners = defaults.object(forKey: Keys.flagURLShorteners) as? Bool ?? true
         delaySevereConfirm = defaults.object(forKey: Keys.delaySevereConfirm) as? Bool ?? true
         appMode = AppMode(rawValue: defaults.string(forKey: Keys.appMode) ?? "") ?? .both
+        chooserLayout = ChooserLayout(rawValue: defaults.string(forKey: Keys.chooserLayout) ?? "") ?? .list
+        chooserSize = ChooserSize(rawValue: defaults.string(forKey: Keys.chooserSize) ?? "") ?? .small
         shareAnonymousSystemInfo = defaults.bool(forKey: Keys.shareAnonymousSystemInfo)
         updateChannel = UpdateChannel(rawValue: defaults.string(forKey: Keys.updateChannel) ?? "") ?? .stable
         browserOrder = defaults.stringArray(forKey: Keys.browserOrder) ?? []
@@ -335,6 +349,14 @@ enum UpdateChannel: String, CaseIterable, Identifiable {
     case beta
 
     var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .stable: return "checkmark.seal.fill"
+        case .releaseCandidate: return "shippingbox.fill"
+        case .beta: return "flask.fill"
+        }
+    }
 
     var label: String {
         switch self {
@@ -395,12 +417,114 @@ enum AppMode: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: Chooser layout
+enum ChooserLayout: String, CaseIterable, Identifiable {
+    case list
+    case grid
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .list: return "List"
+        case .grid: return "Grid"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .list: return "list.bullet"
+        case .grid: return "square.grid.2x2"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .list: return "Browsers appear as rows, one under another."
+        case .grid: return "Browsers appear as icon tiles, up to four across."
+        }
+    }
+}
+
+// MARK: Chooser size
+enum ChooserSize: String, CaseIterable, Identifiable {
+    case small
+    case medium
+    case large
+    case extraLarge
+    case veryLarge
+
+    var id: String { rawValue }
+
+    /// Symbol shown beside the name in menus.
+    var icon: String {
+        switch self {
+        case .small: return "rectangle.compress.vertical"
+        case .medium: return "rectangle.center.inset.filled"
+        case .large: return "rectangle.expand.vertical"
+        case .extraLarge: return "arrow.up.left.and.arrow.down.right"
+        case .veryLarge: return "arrow.up.left.and.arrow.down.right.circle"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
+        case .extraLarge: return "Extra Large"
+        case .veryLarge: return "Very Large"
+        }
+    }
+
+    /// Window width in points.
+    var width: CGFloat {
+        switch self {
+        case .small: return 560
+        case .medium: return 620
+        case .large: return 680
+        case .extraLarge: return 740
+        case .veryLarge: return 800
+        }
+    }
+
+    /// The window never gets taller than this share of the screen height.
+    var maxHeightFraction: CGFloat {
+        switch self {
+        case .small: return 0.72
+        case .medium: return 0.76
+        case .large: return 0.80
+        case .extraLarge: return 0.84
+        case .veryLarge: return 0.88
+        }
+    }
+
+    /// The window is at least this tall (share of screen height), so the bigger
+    /// sizes are physically bigger even with only a few browsers.
+    var minHeightFraction: CGFloat {
+        switch self {
+        case .small: return 0
+        case .medium: return 0.25
+        case .large: return 0.50
+        case .extraLarge: return 0.575
+        case .veryLarge: return 0.65
+        }
+    }
+}
+
 // MARK: Chooser screen
 enum ChooserScreen: String, CaseIterable, Identifiable {
     case underMouse
     case mainScreen
 
     var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .underMouse: return "cursorarrow.motionlines"
+        case .mainScreen: return "macwindow"
+        }
+    }
 
     var label: String {
         switch self {

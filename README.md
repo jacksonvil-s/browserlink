@@ -29,7 +29,8 @@ If a version is supported (bug or security), then open an issue (or security rep
 
 | Version | Technical and bugs support | Security support | Sparkle included |
 | ------- | ------------------ | ------------------- | ------------------- |
-| 1.6.0 (latest) | ✅ | ✅ | 🟣 |
+| 1.6.1 (latest) | :white_check_mark: | :white_check_mark: | :purple_circle:
+| 1.6.0  | ✅ | ✅ | 🟣 |
 | 1.5.0 | ✅ | ✅ | 🟣
 | 1.4.0 | ✅ | ✅ | 🟣
 | 1.3.1 | ✅ | ✅ | ✅
